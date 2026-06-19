@@ -1,0 +1,7 @@
+{
+  "name": "tempo-bridge",
+  "version": "1.0.0",
+  "description": "Firestore to Max bridge for tempo sync",
+  "main": "firestore-bridge.js",
+  "dependencies": {}
+}

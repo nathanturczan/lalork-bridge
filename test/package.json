@@ -1,0 +1,17 @@
+{
+  "name": "scale-navigator-bridge-tests",
+  "version": "1.0.0",
+  "description": "Test utilities for Scale Navigator Bridge",
+  "scripts": {
+    "setup": "node setup-test-room.js",
+    "status": "node setup-test-room.js --status",
+    "smoke": "./run-smoke-test.sh",
+    "rapid": "node rapid-fire-test.js",
+    "rapid:fast": "node rapid-fire-test.js --fast",
+    "all-scenarios": "node setup-test-room.js --all",
+    "reset": "node setup-test-room.js --scale c_diatonic --bpm 120 --chord Cmaj7",
+    "cleanup": "node setup-test-room.js --delete"
+  },
+  "keywords": ["ableton", "max-for-live", "firebase", "testing"],
+  "license": "MIT"
+}

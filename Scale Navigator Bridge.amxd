@@ -1,0 +1,514 @@
+{
+	"patcher" : {
+		"fileversion" : 1,
+		"appversion" : {
+			"major" : 8,
+			"minor" : 6,
+			"revision" : 0,
+			"architecture" : "x64",
+			"modernui" : 1
+		},
+		"classnamespace" : "box",
+		"rect" : [ 100.0, 100.0, 800.0, 700.0 ],
+		"bglocked" : 0,
+		"openinpresentation" : 1,
+		"default_fontsize" : 12.0,
+		"default_fontface" : 0,
+		"default_fontname" : "Arial",
+		"gridonopen" : 1,
+		"gridsize" : [ 15.0, 15.0 ],
+		"gridsnaponopen" : 1,
+		"objectsnaponopen" : 1,
+		"statusbarvisible" : 2,
+		"toolbarvisible" : 1,
+		"lefttoolbarpinned" : 0,
+		"toptoolbarpinned" : 0,
+		"righttoolbarpinned" : 0,
+		"bottomtoolbarpinned" : 0,
+		"toolbars_unpinned_last_save" : 0,
+		"tallnewobj" : 0,
+		"boxanimatetime" : 200,
+		"enablehscroll" : 1,
+		"enablevscroll" : 1,
+		"devicewidth" : 0.0,
+		"description" : "Sync Ableton tempo and Scale Awareness to a Firebase room",
+		"digest" : "Firebase bridge for Scale Navigator ecosystem",
+		"tags" : "tempo, scale, harmony, firebase, ensemble",
+		"style" : "",
+		"subpatcher_template" : "",
+		"assistshowspatchername" : 0,
+		"boxes" : [
+			{
+				"box" : {
+					"comment" : "Title",
+					"id" : "obj-title",
+					"maxclass" : "comment",
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 30.0, 15.0, 200.0, 20.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 5.0, 3.0, 170.0, 20.0 ],
+					"text" : "Scale Navigator Bridge",
+					"fontface" : 1,
+					"fontsize" : 12.0
+				}
+			},
+			{
+				"box" : {
+					"comment" : "Room Code Input",
+					"id" : "obj-room-input",
+					"maxclass" : "textedit",
+					"numinlets" : 1,
+					"numoutlets" : 4,
+					"outlettype" : [ "", "int", "", "" ],
+					"parameter_enable" : 0,
+					"patching_rect" : [ 30.0, 50.0, 120.0, 22.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 5.0, 25.0, 100.0, 20.0 ],
+					"placeholder" : "room slug",
+					"fontsize" : 11.0,
+					"text" : ""
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-prepend-room",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 30.0, 80.0, 85.0, 22.0 ],
+					"text" : "prepend room"
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-connect-btn",
+					"maxclass" : "textbutton",
+					"numinlets" : 1,
+					"numoutlets" : 3,
+					"outlettype" : [ "", "", "int" ],
+					"parameter_enable" : 0,
+					"patching_rect" : [ 170.0, 50.0, 55.0, 22.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 110.0, 25.0, 45.0, 20.0 ],
+					"text" : "Connect",
+					"fontsize" : 10.0
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-connect-msg",
+					"maxclass" : "message",
+					"numinlets" : 2,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 170.0, 80.0, 53.0, 22.0 ],
+					"text" : "connect"
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-disconnect-btn",
+					"maxclass" : "textbutton",
+					"numinlets" : 1,
+					"numoutlets" : 3,
+					"outlettype" : [ "", "", "int" ],
+					"parameter_enable" : 0,
+					"patching_rect" : [ 240.0, 50.0, 40.0, 22.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 160.0, 25.0, 35.0, 20.0 ],
+					"text" : "Stop",
+					"fontsize" : 10.0
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-disconnect-msg",
+					"maxclass" : "message",
+					"numinlets" : 2,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 240.0, 80.0, 63.0, 22.0 ],
+					"text" : "disconnect"
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-node",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 2,
+					"outlettype" : [ "", "" ],
+					"patching_rect" : [ 30.0, 120.0, 220.0, 22.0 ],
+					"text" : "node.script code/firestore-bridge.js"
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-route-main",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 8,
+					"outlettype" : [ "", "", "", "", "", "", "", "" ],
+					"patching_rect" : [ 30.0, 160.0, 500.0, 22.0 ],
+					"text" : "route bpm rootNote rootName scaleName scaleClass chord status"
+				}
+			},
+			{
+				"box" : {
+					"comment" : "BPM Label",
+					"id" : "obj-bpm-label",
+					"maxclass" : "comment",
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 30.0, 200.0, 35.0, 20.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 5.0, 50.0, 35.0, 20.0 ],
+					"text" : "BPM",
+					"fontsize" : 11.0
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-bpm-display",
+					"maxclass" : "number",
+					"numinlets" : 1,
+					"numoutlets" : 2,
+					"outlettype" : [ "", "bang" ],
+					"parameter_enable" : 0,
+					"patching_rect" : [ 30.0, 225.0, 50.0, 22.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 40.0, 48.0, 50.0, 22.0 ],
+					"triangle" : 0,
+					"fontsize" : 14.0,
+					"fontface" : 1
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-set-tempo",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 30.0, 260.0, 105.0, 22.0 ],
+					"text" : "prepend set tempo"
+				}
+			},
+			{
+				"box" : {
+					"comment" : "Scale Label",
+					"id" : "obj-scale-label",
+					"maxclass" : "comment",
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 150.0, 200.0, 40.0, 20.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 95.0, 50.0, 40.0, 20.0 ],
+					"text" : "Scale",
+					"fontsize" : 11.0
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-root-display",
+					"maxclass" : "comment",
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 150.0, 225.0, 30.0, 20.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 95.0, 68.0, 25.0, 20.0 ],
+					"text" : "C",
+					"fontsize" : 12.0,
+					"fontface" : 1
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-scale-display",
+					"maxclass" : "comment",
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 180.0, 225.0, 100.0, 20.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 118.0, 68.0, 80.0, 20.0 ],
+					"text" : "Major",
+					"fontsize" : 12.0
+				}
+			},
+			{
+				"box" : {
+					"comment" : "Chord Label",
+					"id" : "obj-chord-label",
+					"maxclass" : "comment",
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 300.0, 200.0, 40.0, 20.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 5.0, 68.0, 40.0, 20.0 ],
+					"text" : "Chord",
+					"fontsize" : 11.0
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-chord-display",
+					"maxclass" : "comment",
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 300.0, 225.0, 80.0, 20.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 40.0, 68.0, 50.0, 20.0 ],
+					"text" : "",
+					"fontsize" : 11.0
+				}
+			},
+			{
+				"box" : {
+					"comment" : "Status display",
+					"id" : "obj-status-display",
+					"maxclass" : "comment",
+					"numinlets" : 1,
+					"numoutlets" : 0,
+					"patching_rect" : [ 400.0, 225.0, 120.0, 20.0 ],
+					"presentation" : 1,
+					"presentation_rect" : [ 5.0, 90.0, 190.0, 20.0 ],
+					"text" : "ready",
+					"fontsize" : 10.0,
+					"textcolor" : [ 0.5, 0.5, 0.5, 1.0 ]
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-loadbang",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "bang" ],
+					"patching_rect" : [ 30.0, 300.0, 60.0, 22.0 ],
+					"text" : "loadbang"
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-live-path",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 3,
+					"outlettype" : [ "", "", "" ],
+					"patching_rect" : [ 30.0, 330.0, 100.0, 22.0 ],
+					"text" : "live.path live_set"
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-live-object",
+					"maxclass" : "newobj",
+					"numinlets" : 2,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 30.0, 400.0, 70.0, 22.0 ],
+					"text" : "live.object"
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-set-root",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 150.0, 260.0, 115.0, 22.0 ],
+					"text" : "prepend set root_note"
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-set-scale",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 280.0, 260.0, 125.0, 22.0 ],
+					"text" : "prepend set scale_name"
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-gate-hexatonic",
+					"maxclass" : "newobj",
+					"numinlets" : 2,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 280.0, 300.0, 130.0, 22.0 ],
+					"text" : "gate 1 1"
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-check-hexatonic",
+					"maxclass" : "newobj",
+					"numinlets" : 1,
+					"numoutlets" : 2,
+					"outlettype" : [ "", "" ],
+					"patching_rect" : [ 280.0, 225.0, 130.0, 22.0 ],
+					"text" : "route __hexatonic__"
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-hexatonic-warn",
+					"maxclass" : "message",
+					"numinlets" : 2,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ],
+					"patching_rect" : [ 420.0, 260.0, 130.0, 22.0 ],
+					"text" : "Hexatonic (not in Ableton)"
+				}
+			}
+		],
+		"lines" : [
+			{
+				"patchline" : {
+					"destination" : [ "obj-prepend-room", 0 ],
+					"source" : [ "obj-room-input", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-node", 0 ],
+					"source" : [ "obj-prepend-room", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-connect-msg", 0 ],
+					"source" : [ "obj-connect-btn", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-node", 0 ],
+					"source" : [ "obj-connect-msg", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-disconnect-msg", 0 ],
+					"source" : [ "obj-disconnect-btn", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-node", 0 ],
+					"source" : [ "obj-disconnect-msg", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-route-main", 0 ],
+					"source" : [ "obj-node", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-bpm-display", 0 ],
+					"source" : [ "obj-route-main", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-set-tempo", 0 ],
+					"source" : [ "obj-bpm-display", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-live-object", 0 ],
+					"source" : [ "obj-set-tempo", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-set-root", 0 ],
+					"source" : [ "obj-route-main", 1 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-live-object", 0 ],
+					"source" : [ "obj-set-root", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-root-display", 0 ],
+					"source" : [ "obj-route-main", 2 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-check-hexatonic", 0 ],
+					"source" : [ "obj-route-main", 3 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-hexatonic-warn", 0 ],
+					"source" : [ "obj-check-hexatonic", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-set-scale", 0 ],
+					"source" : [ "obj-check-hexatonic", 1 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-scale-display", 0 ],
+					"source" : [ "obj-hexatonic-warn", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-live-object", 0 ],
+					"source" : [ "obj-set-scale", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-scale-display", 0 ],
+					"source" : [ "obj-set-scale", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-chord-display", 0 ],
+					"source" : [ "obj-route-main", 5 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-status-display", 0 ],
+					"source" : [ "obj-route-main", 6 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-live-path", 0 ],
+					"source" : [ "obj-loadbang", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"destination" : [ "obj-live-object", 1 ],
+					"source" : [ "obj-live-path", 1 ]
+				}
+			}
+		],
+		"dependency_cache" : [ ],
+		"autosave" : 0
+	}
+}
