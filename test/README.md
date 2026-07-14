@@ -2,6 +2,18 @@
 
 Test scripts for Scale Navigator Bridge.
 
+## Prerequisites
+
+Firestore rules only allow room writes by the room's host, so the write
+scripts (`setup`, `smoke`, `rapid`, `all-scenarios`, `reset`, `cleanup`)
+authenticate with a gcloud OAuth token (project owner, bypasses rules via IAM):
+
+```bash
+gcloud auth login   # one-time, as the project owner account
+```
+
+Reads are public — no auth needed (same as the device itself).
+
 ## Quick Start
 
 ```bash

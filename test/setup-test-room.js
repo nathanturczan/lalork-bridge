@@ -14,6 +14,7 @@
  */
 
 const https = require('https');
+const { execSync } = require('child_process');
 
 // Configuration
 const CONFIG = {
@@ -53,6 +54,21 @@ function buildDocumentUrl() {
     return `https://firestore.googleapis.com/v1/projects/${CONFIG.projectId}/databases/(default)/documents/rooms/${CONFIG.testRoomId}`;
 }
 
+// Firestore rules deny unauthenticated writes to rooms. Writes use a gcloud
+// OAuth token (project owner), which goes through IAM and bypasses rules.
+let cachedToken = null;
+function getAccessToken() {
+    if (cachedToken) return cachedToken;
+    try {
+        cachedToken = execSync('gcloud auth print-access-token', { encoding: 'utf8' }).trim();
+        return cachedToken;
+    } catch (err) {
+        console.error('\nCould not get a gcloud access token (required for writes).');
+        console.error('Run: gcloud auth login');
+        process.exit(1);
+    }
+}
+
 function toFirestoreValue(value) {
     if (typeof value === 'number') {
         if (Number.isInteger(value)) {
@@ -80,11 +96,15 @@ function toFirestoreDocument(data) {
 function httpRequest(method, url, body = null) {
     return new Promise((resolve, reject) => {
         const urlObj = new URL(url);
+        const headers = { 'Content-Type': 'application/json' };
+        if (method !== 'GET') {
+            headers['Authorization'] = `Bearer ${getAccessToken()}`;
+        }
         const options = {
             hostname: urlObj.hostname,
             path: urlObj.pathname + urlObj.search,
             method,
-            headers: { 'Content-Type': 'application/json' }
+            headers
         };
 
         const req = https.request(options, (res) => {

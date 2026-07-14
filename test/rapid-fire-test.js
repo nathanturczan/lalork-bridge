@@ -15,11 +15,27 @@
  */
 
 const https = require('https');
+const { execSync } = require('child_process');
 
 const CONFIG = {
     projectId: 'scale-navigator-ensemble',
     testRoomId: 'scale-navigator-bridge-test'
 };
+
+// Firestore rules deny unauthenticated writes to rooms. Writes use a gcloud
+// OAuth token (project owner), which goes through IAM and bypasses rules.
+let cachedToken = null;
+function getAccessToken() {
+    if (cachedToken) return cachedToken;
+    try {
+        cachedToken = execSync('gcloud auth print-access-token', { encoding: 'utf8' }).trim();
+        return cachedToken;
+    } catch (err) {
+        console.error('\nCould not get a gcloud access token (required for writes).');
+        console.error('Run: gcloud auth login');
+        process.exit(1);
+    }
+}
 
 const SCALES = [
     'c_diatonic', 'g_diatonic', 'd_acoustic', 'a_harmonic_minor',
@@ -65,13 +81,22 @@ function httpPatch(url, fields) {
             hostname: urlObj.hostname,
             path: urlObj.pathname,
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' }
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${getAccessToken()}`
+            }
         };
 
         const req = https.request(options, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
-            res.on('end', () => resolve({ status: res.statusCode }));
+            res.on('end', () => {
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    resolve({ status: res.statusCode });
+                } else {
+                    reject(new Error(`HTTP ${res.statusCode}`));
+                }
+            });
         });
         req.on('error', reject);
         req.write(JSON.stringify(body));
