@@ -28,6 +28,12 @@ let lastScaleData = null;
 let lastChordData = null;
 let pollTimer = null;
 
+// Chord MIDI output state
+let playChords = true;          // toggled from Max UI
+let heldNotes = [];             // notes currently sounding (need note-offs)
+let currentChordNotes = null;   // voicing of the current chord (for toggle-on replay)
+const NOTE_VELOCITY = 96;
+
 // ---------------------------------------------------------------------------
 // Scale Navigator → Ableton Scale Mapping
 // ---------------------------------------------------------------------------
@@ -82,6 +88,57 @@ function parseScaleData(scaleData) {
 
     const rootName = ROOT_NAMES[root];
     return { root, rootName, scaleClass, abletonScaleName };
+}
+
+// ---------------------------------------------------------------------------
+// Chord → MIDI Notes
+// ---------------------------------------------------------------------------
+
+// Fallback chord database (chordData id → voicing). Loaded lazily; only needed
+// for rooms written by older Dashboard versions that don't include chordInfo.
+let chordDb = null;
+function lookupChordVoicing(chordData) {
+    if (chordDb === null) {
+        try {
+            chordDb = require('./chords_no_supersets.json');
+        } catch (e) {
+            maxApi.post('Warning: chords_no_supersets.json not found; chord MIDI needs chordInfo from the room');
+            chordDb = {};
+        }
+    }
+    const entry = chordDb[chordData];
+    if (entry && Array.isArray(entry.original_voicing) && entry.original_voicing.length > 0) {
+        return entry.original_voicing;
+    }
+    return null;
+}
+
+/**
+ * Resolve the MIDI voicing for the current chord.
+ * Priority: room's chordInfo.voicing (exact, supports custom chords)
+ *           → bundled chord DB original_voicing
+ *           → null (display-only)
+ */
+function resolveChordNotes(doc, chordData) {
+    const chordInfoVoicing = extractChordInfoVoicing(doc);
+    if (chordInfoVoicing) return chordInfoVoicing;
+    return lookupChordVoicing(chordData);
+}
+
+function sendNoteOffs() {
+    for (const note of heldNotes) {
+        maxApi.outlet('midiNote', note, 0);
+    }
+    heldNotes = [];
+}
+
+function playChordNotes(notes) {
+    sendNoteOffs();
+    if (!playChords || !notes) return;
+    for (const note of notes) {
+        maxApi.outlet('midiNote', note, NOTE_VELOCITY);
+    }
+    heldNotes = notes.slice();
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +283,22 @@ function extractChordData(doc) {
     return extractFieldValue(fields.chordData);
 }
 
+/**
+ * Extract chordInfo.voicing (array of absolute MIDI notes) from the room doc.
+ * Written by Dashboard "Harmony Payload v2" alongside chordData.
+ */
+function extractChordInfoVoicing(doc) {
+    try {
+        const values = doc.fields.chordInfo.mapValue.fields.voicing.arrayValue.values;
+        const notes = values
+            .map(v => extractFieldValue(v))
+            .filter(n => typeof n === 'number' && n >= 0 && n <= 127);
+        return notes.length > 0 ? notes : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Polling Logic
 // ---------------------------------------------------------------------------
@@ -270,12 +343,19 @@ async function poll() {
             }
         }
 
-        // --- Chord Data ---
+        // --- Chord Data → display + MIDI notes into the track ---
         const chordData = extractChordData(doc);
         if (chordData !== null && chordData !== lastChordData) {
             lastChordData = chordData;
             maxApi.outlet('chord', chordData);
-            maxApi.post(`Chord: ${chordData}`);
+
+            currentChordNotes = resolveChordNotes(doc, chordData);
+            playChordNotes(currentChordNotes);
+            if (currentChordNotes) {
+                maxApi.post(`Chord: ${chordData} → notes [${currentChordNotes.join(' ')}]`);
+            } else {
+                maxApi.post(`Chord: ${chordData} (no voicing found, display only)`);
+            }
         }
 
         maxApi.outlet('status', 'connected');
@@ -301,6 +381,8 @@ function stopPolling() {
         clearInterval(pollTimer);
         pollTimer = null;
     }
+    sendNoteOffs();
+    currentChordNotes = null;
     lastBpm = null;
     lastScaleData = null;
     lastChordData = null;
@@ -345,6 +427,20 @@ maxApi.addHandler('connect', () => {
 maxApi.addHandler('disconnect', () => {
     stopPolling();
     maxApi.post('Disconnected');
+});
+
+// Chord MIDI on/off (from device toggle). Default on.
+maxApi.addHandler('playChords', (val) => {
+    const on = !!parseFloat(val);
+    if (on === playChords) return;
+    playChords = on;
+    if (on) {
+        playChordNotes(currentChordNotes);  // resume current chord
+        maxApi.post('Chord MIDI: on');
+    } else {
+        sendNoteOffs();
+        maxApi.post('Chord MIDI: off');
+    }
 });
 
 // Manual poll (for testing)

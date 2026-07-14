@@ -45,10 +45,10 @@ echo "Expected: Root=G, Scale=Harmonic Minor"
 read -p "Verify in Ableton Scale Awareness, then press Enter..."
 
 echo ""
-echo "--- Test 4: Chord Change (Am7) ---"
-node setup-test-room.js --chord Am7
-echo "Expected: Chord display shows Am7"
-read -p "Verify in device UI, then press Enter..."
+echo "--- Test 4: Chord Change (A minor 7, plays MIDI) ---"
+node setup-test-room.js --chord a_m7-13
+echo "Expected: Chord display shows a_m7-13, chord sounds on the track (notes 57 67 72 76)"
+read -p "Verify in device UI and instrument, then press Enter..."
 
 echo ""
 echo "--- Test 5: Hexatonic (No Ableton Equivalent) ---"

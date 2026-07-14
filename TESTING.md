@@ -167,26 +167,56 @@ Set scaleData to same value it already is
 
 ---
 
-## Phase 5: Chord Display
+## Phase 5: Chord Display + MIDI Output
 
-### 5.1 Chord Update
+Put an instrument (e.g., a piano) on the same track as the device.
+
+### 5.1 Chord Update (DB voicing)
 ```
-Set room chordData: "Cmaj7"
+Set room chordData: "d_m7♭5-26"  (a key in the bundled chord DB)
 ```
-- [ ] Chord display shows "Cmaj7"
-- [ ] Max console shows: `Chord: Cmaj7`
+- [ ] Chord display shows "d_m7♭5-26"
+- [ ] Max console shows: `Chord: d_m7♭5-26 → notes [50 60 65 68 74]`
+- [ ] Instrument on the track sounds the chord (sustained)
 
 ### 5.2 Chord Change
 ```
-Change room chordData: "Am9"
+Change room chordData to another DB key
 ```
-- [ ] Chord display updates to "Am9"
+- [ ] Old notes are released, new chord sounds (no stuck notes)
+- [ ] Chord display updates
 
-### 5.3 Missing Chord
+### 5.3 chordInfo Voicing (Harmony Payload v2)
+```
+Change chord from a current Dashboard (writes chordInfo.voicing)
+```
+- [ ] Notes match the Dashboard's exact voicing
+- [ ] Works for custom chords not in the bundled DB
+
+### 5.4 Unknown Chord (display only)
+```
+Set room chordData: "Cmaj7" (not a DB key, no chordInfo)
+```
+- [ ] Chord display shows "Cmaj7"
+- [ ] Console: `Chord: Cmaj7 (no voicing found, display only)`
+- [ ] Previously held notes are released, no new notes
+
+### 5.5 Play Chords Toggle
+- [ ] Toggle off → all notes released immediately
+- [ ] Toggle on → current chord resumes
+- [ ] Toggle state is a Live parameter (automatable, saved with the set)
+
+### 5.6 Stop/Disconnect Releases Notes
+- [ ] While a chord is sounding, click Stop → no stuck notes
+
+### 5.7 MIDI Passthrough
+- [ ] Play MIDI into the track from a keyboard/clip → it passes through the device
+
+### 5.8 Missing Chord
 ```
 Room has no chordData field
 ```
-- [ ] Chord display stays empty (no crash)
+- [ ] Chord display stays empty (no crash, no notes)
 
 ---
 

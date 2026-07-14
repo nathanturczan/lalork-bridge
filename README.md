@@ -15,7 +15,7 @@ Works with:
 |------------|----------------|--------|
 | `bpm` | Session tempo | `live.object` → `set tempo` |
 | `scaleData` | Scale Awareness | `live.object` → `set root_note` + `set scale_name` |
-| `chordData` | Display only | (Push, Wavetable, etc. follow Scale Awareness) |
+| `chordData` / `chordInfo` | MIDI notes into the device's own track | `midiformat` → `midiout` |
 
 ## Architecture
 
@@ -24,19 +24,34 @@ Firestore room doc (public read)
          ↓
     node.script (polls every 2s)
          ↓
-    parse scaleData → root + scale_class
-         ↓
-    live.object directly sets:
-      • set tempo 120
-      • set root_note 7        (G)
-      • set scale_name Major
-         ↓
-    Ableton Scale Awareness updates
-         ↓
-    Push, Wavetable, scale-aware plugins all follow
+    ├─ parse scaleData → root + scale_class
+    │        ↓
+    │   live.object directly sets:
+    │     • set tempo 120
+    │     • set root_note 7        (G)
+    │     • set scale_name Major
+    │        ↓
+    │   Ableton Scale Awareness updates
+    │   (Push, Wavetable, scale-aware plugins all follow)
+    │
+    └─ resolve chord → MIDI voicing
+             ↓
+        midiformat → midiout
+             ↓
+        chord notes play through whatever
+        instrument is on the same track
 ```
 
-**No MIDI routing needed.** This device talks directly to Ableton's API.
+**No MIDI routing needed.** Tempo and scale go directly to Ableton's API; chord notes flow straight into the track the device sits on. Incoming track MIDI passes through untouched.
+
+## Chord MIDI Output
+
+The current chord sounds as sustained notes (held until the chord changes) through the instrument on the device's track. A **Play Chords** toggle on the device turns this off (all notes are released immediately).
+
+Voicing resolution order:
+1. `chordInfo.voicing` from the room doc — exact absolute-MIDI voicing, written by current Dashboard versions (Harmony Payload v2, includes custom chords)
+2. Lookup of `chordData` in the bundled `chords_no_supersets.json` → `original_voicing` (rooms hosted by older Dashboard versions)
+3. No match → chord is display-only, no notes
 
 ## Scale Class Mapping
 
@@ -73,10 +88,11 @@ Scale Navigator's 7 scale classes map to Ableton's scale names:
 1. `node.script` runs `firestore-bridge.js`
 2. On connect, resolves room slug → document ID
 3. Polls `https://firestore.googleapis.com/v1/projects/scale-navigator-ensemble/...`
-4. Extracts `bpm`, `scaleData`, `chordData` from response
+4. Extracts `bpm`, `scaleData`, `chordData`, `chordInfo` from response
 5. Parses `scaleData` (e.g., `"g_harmonic_minor"` → root 7, scale "Harmonic Minor")
-6. Sends to Max: `rootNote 7`, `scaleName "Harmonic Minor"`, `bpm 120`
-7. Max routes to `live.object` which sets Ableton's properties directly
+6. Resolves the chord to a MIDI voicing (`chordInfo.voicing`, else bundled chord DB)
+7. Sends to Max: `rootNote 7`, `scaleName "Harmonic Minor"`, `bpm 120`, `midiNote <pitch> <vel>` per chord note
+8. Max routes tempo/scale to `live.object` and chord notes to `midiformat → midiout`
 
 ## UI
 
@@ -89,6 +105,7 @@ Scale Navigator's 7 scale classes map to Ableton's scale names:
 │  BPM   120        Scale  G  Harmonic Minor             │
 │  Chord Cmaj7                                            │
 │  connected                                              │
+│  [x] Play chords into track                             │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -126,7 +143,8 @@ Use this device for Firebase-connected workflows. Use Scale Awareness Bridge for
 ```
 ├── Scale Navigator Bridge.amxd   # The M4L device
 ├── code/
-│   ├── firestore-bridge.js       # Node script (polling + parsing)
+│   ├── firestore-bridge.js       # Node script (polling + parsing + chord MIDI)
+│   ├── chords_no_supersets.json  # Chord voicing DB (fallback for old rooms)
 │   └── package.json
 └── README.md
 ```
