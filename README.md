@@ -15,14 +15,14 @@ Works with:
 |------------|----------------|--------|
 | `bpm` | Session tempo | `live.object` → `set tempo` |
 | `scaleData` | Scale Awareness | `live.object` → `set root_note` + `set scale_name` |
-| `chordData` / `chordInfo` | MIDI notes into the device's own track | `midiformat` → `midiout` |
+| `chordData` / `chordInfo` | MIDI notes into the device's own track (chord voicing, chord root, or scale notes — selectable) | `midiformat` → `midiout` |
 
 ## Architecture
 
 ```
 Firestore room doc (public read)
          ↓
-    node.script (polls every 2s)
+    node.script (polls every 0.5s)
          ↓
     ├─ parse scaleData → root + scale_class
     │        ↓
@@ -44,13 +44,21 @@ Firestore room doc (public read)
 
 **No MIDI routing needed.** Tempo and scale go directly to Ableton's API; chord notes flow straight into the track the device sits on. Incoming track MIDI passes through untouched.
 
-## Chord MIDI Output
+## Note Output Modes
 
-The current chord sounds as sustained notes (held until the chord changes) through the instrument on the device's track. A **Play Chords** toggle on the device turns this off (all notes are released immediately).
+Each device instance plays sustained notes (held until the harmony changes) through the instrument on its own track. An **Output** dropdown selects what it plays, so you can put one instance on each of several tracks:
 
-Voicing resolution order:
+| Mode | Notes | Range |
+|------|-------|-------|
+| **Chord Voicing** (default) | The current chord's exact voicing | absolute MIDI from the room |
+| **Chord Root** | The chord root as a single bass note | pitch class + 24 (MIDI 24-35) |
+| **Scale Notes** | All pitch classes of the current scale | pitch class + 36 (MIDI 36-47) |
+
+A **Play** toggle turns note output off (all notes are released immediately). Tempo and scale sync are unaffected by the mode — every instance sets them identically (idempotent), so multiple instances coexist as long as they're on **different tracks**.
+
+Voicing resolution order (Chord Voicing mode):
 1. `chordInfo.voicing` from the room doc — exact absolute-MIDI voicing, written by current Dashboard versions (Harmony Payload v2, includes custom chords)
-2. Lookup of `chordData` in the bundled `chords_no_supersets.json` → `original_voicing` (rooms hosted by older Dashboard versions)
+2. Lookup of `chordData` in `chords_no_supersets.json` → `original_voicing` (rooms hosted by older Dashboard versions; **not embedded in the frozen device** — only available when running the unfrozen source with the file alongside)
 3. No match → chord is display-only, no notes
 
 ## Scale Class Mapping
@@ -60,33 +68,40 @@ Scale Navigator's 7 scale classes map to Ableton's scale names:
 | Scale Navigator | Ableton Scale Name |
 |-----------------|-------------------|
 | diatonic | Major |
-| acoustic | Melodic Minor |
+| acoustic | Lydian Dominant |
 | harmonic_minor | Harmonic Minor |
 | harmonic_major | Harmonic Major |
 | whole_tone | Whole Tone |
 | octatonic | Half-whole Dim. |
-| hexatonic | ⚠️ Not in Ableton |
+| hexatonic | Messiaen 3 (superset) |
 
-**Note:** When hexatonic is selected in the room, the device displays a warning but doesn't change Ableton's scale (there's no equivalent).
+**Note:** Ableton has no hexatonic scale, and the scale list is not extensible (the LOM and the Extensions SDK only expose read-only scale properties). The device approximates it with Messiaen 3 at the same root: all 6 hexatonic pitches are contained in it, plus 3 extra notes.
 
 ## Installation
 
-1. Copy `Scale Navigator Bridge.amxd` to your Ableton User Library:
-   ```
-   ~/Music/Ableton/User Library/Presets/MIDI Effects/Max MIDI Effect/
-   ```
-2. In Live, drag the device onto any MIDI track
-3. Enter your room slug (e.g., `my-ensemble`) and click Connect
+Use the **frozen** device in `dist/Scale Navigator Bridge.amxd` — it's fully self-contained (the node script is embedded).
+
+1. Drag `dist/Scale Navigator Bridge.amxd` onto any MIDI track in Live — straight from Downloads, Desktop, anywhere
+2. That's it — it connects to the LA Laptop Orchestra room automatically and the banner goes green
+
+Optionally copy it into your User Library so it shows up in Live's browser:
+```
+~/Music/Ableton/User Library/Presets/MIDI Effects/Max MIDI Effect/
+```
+
+The `Scale Navigator Bridge.amxd` at the repo root is the **unfrozen source** device — it needs `code/firestore-bridge.js` in Max's search path and is only for development.
 
 ## Configuration
 
-- **Room Code**: Room slug (e.g., `my-ensemble`) or Firestore document ID
-- **Poll Interval**: 2 seconds (hardcoded; edit `firestore-bridge.js` to change)
+None. The device is plug-and-play, dedicated to the `la-laptop-orchestra` room. To stop syncing, delete the device from the track.
+
+- **Room**: hardcoded (`DEFAULT_ROOM` in `firestore-bridge.js`; a `room` message to the node.script retargets it for testing)
+- **Poll Interval**: 0.5 seconds (hardcoded; edit `firestore-bridge.js` to change)
 
 ## How It Works
 
-1. `node.script` runs `firestore-bridge.js`
-2. On connect, resolves room slug → document ID
+1. `node.script` runs `firestore-bridge.js`, which connects on load
+2. Resolves room slug → document ID
 3. Polls `https://firestore.googleapis.com/v1/projects/scale-navigator-ensemble/...`
 4. Extracts `bpm`, `scaleData`, `chordData`, `chordInfo` from response
 5. Parses `scaleData` (e.g., `"g_harmonic_minor"` → root 7, scale "Harmonic Minor")
@@ -99,15 +114,26 @@ Scale Navigator's 7 scale classes map to Ableton's scale names:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Scale Navigator Bridge                                 │
-│  ┌────────────────┐  [Connect] [Stop]                  │
-│  │ my-ensemble    │                                     │
-│  └────────────────┘                                     │
+│  Room: la-laptop-orchestra (auto-connects)              │
 │  BPM   120        Scale  G  Harmonic Minor             │
 │  Chord Cmaj7                                            │
-│  connected                                              │
-│  [x] Play chords into track                             │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │           ● FOLLOWING LALORK (green)            │    │
+│  └─────────────────────────────────────────────────┘    │
+│  [x] Play   Output: [Chord Voicing ▾]                   │
 └─────────────────────────────────────────────────────────┘
 ```
+
+The status banner is a full-width color block, readable from stage distance:
+
+| State | Banner |
+|-------|--------|
+| Connected and following the room | green — `● FOLLOWING LALORK` |
+| Poll failing (wifi down, room missing) | red — `✗ NO CONNECTION - CHECK WIFI` |
+| Connecting (first poll in flight) | amber — `connecting...` |
+| Manually disconnected | gray — `disconnected` |
+
+Status is emitted only on state *change*, so the banner switches instantly but the patch isn't hammered with messages every poll.
 
 ## Firestore Document Structure
 
@@ -128,26 +154,36 @@ The device expects a document at `rooms/{roomCode}` with:
 | Scale API | Direct `live.object` | MIDI → lookup → `live.object` |
 | Setup | Drop in, enter room | Configure 2 MIDI outputs + routing |
 | Hexatonic | Shows warning | UI goes stale (bug) |
-| Real-time | ~2s latency | Instant (MIDI) |
+| Real-time | ~0.5s latency | Instant (MIDI) |
 
 Use this device for Firebase-connected workflows. Use Scale Awareness Bridge for local MIDI-based setups.
 
 ## Quota Considerations
 
-- Firestore free tier: 50,000 reads/day
-- Default poll rate (2s): ~43,200 reads/day per device
-- For multi-device scenarios, consider increasing poll interval
+- Firestore free tier: 50,000 reads/day — a **single instance** at the 0.5s poll rate burns that in ~7 hours (172,800 reads/day)
+- Ensemble math: 10 laptops × 3 instances × 2 reads/s × 3h rehearsal ≈ 650k reads
+- **The project should be on the Blaze plan** for real ensemble use; overage costs $0.06 per 100k reads (≈ $0.36 for the rehearsal above). Set a small budget alert.
+- Future fix: replace polling with a Firestore streaming listener (1 read per change, ~100ms latency) — requires bundling the Firebase SDK into the script (e.g., esbuild) to keep the frozen device self-contained
 
 ## File Structure
 
 ```
-├── Scale Navigator Bridge.amxd   # The M4L device
+├── dist/
+│   └── Scale Navigator Bridge.amxd  # FROZEN, self-contained — this is the distributable
+├── Scale Navigator Bridge.amxd   # Unfrozen source device (development only)
 ├── code/
 │   ├── firestore-bridge.js       # Node script (polling + parsing + chord MIDI)
-│   ├── chords_no_supersets.json  # Chord voicing DB (fallback for old rooms)
+│   ├── chords_no_supersets.json  # Chord voicing DB (fallback for old rooms; not frozen in)
 │   └── package.json
 └── README.md
 ```
+
+### Development workflow
+
+The frozen `dist/` device embeds a snapshot of `firestore-bridge.js`. After editing the script:
+1. Deploy source files next to the unfrozen device, open it in Live, click the pencil to edit in Max
+2. Click the snowflake (Freeze Device), Cmd+S
+3. Copy the frozen result to `dist/`
 
 ## Related
 

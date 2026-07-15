@@ -51,10 +51,10 @@ echo "Expected: Chord display shows a_m7-13, chord sounds on the track (notes 57
 read -p "Verify in device UI and instrument, then press Enter..."
 
 echo ""
-echo "--- Test 5: Hexatonic (No Ableton Equivalent) ---"
-node setup-test-room.js --scale b_hexatonic
-echo "Expected: Warning in UI, Ableton scale unchanged"
-read -p "Verify warning appears, then press Enter..."
+echo "--- Test 5: Hexatonic (Messiaen 3 Approximation) ---"
+node setup-test-room.js --scale hexatonic_4
+echo "Expected: Root=E, Scale display=Hexatonic, Ableton=Messiaen 3"
+read -p "Verify in Ableton, then press Enter..."
 
 echo ""
 echo "--- Test 6: Sharp Root (C# Diatonic) ---"
@@ -65,7 +65,7 @@ read -p "Verify in Ableton, then press Enter..."
 echo ""
 echo "--- Test 7: Flat Root (Bb Acoustic) ---"
 node setup-test-room.js --scale bb_acoustic
-echo "Expected: Root=Bb, Scale=Melodic Minor"
+echo "Expected: Root=Bb, Scale=Lydian Dominant"
 read -p "Verify in Ableton, then press Enter..."
 
 echo ""

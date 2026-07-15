@@ -18,7 +18,7 @@ let config = {
     projectId: 'scale-navigator-ensemble',
     roomCode: null,           // slug or document ID
     resolvedDocId: null,      // actual Firestore document ID
-    pollInterval: 2000,       // ms
+    pollInterval: 500,        // ms
     enabled: false
 };
 
@@ -26,13 +26,30 @@ let config = {
 let lastBpm = null;
 let lastScaleData = null;
 let lastChordData = null;
+let lastStatus = null;
 let pollTimer = null;
 
-// Chord MIDI output state
-let playChords = true;          // toggled from Max UI
+// Emit status to the UI banner only when it changes (poll runs every 500ms)
+function setStatus(s) {
+    if (s === lastStatus) return;
+    lastStatus = s;
+    maxApi.outlet('status', s);
+}
+
+// MIDI output state
+let playChords = true;          // toggled from Max UI (gates all note output)
 let heldNotes = [];             // notes currently sounding (need note-offs)
-let currentChordNotes = null;   // voicing of the current chord (for toggle-on replay)
+let currentChordNotes = null;   // voicing of the current chord
+let currentChordRoot = null;    // pitch class (0-11) of the current chord root
+let currentScalePcs = null;     // pitch classes (0-11) of the current scale
 const NOTE_VELOCITY = 96;
+
+// Output mode: what this instance plays into its track.
+// Matches the Dashboard's MIDI output types.
+const OUTPUT_MODES = ['Chord Voicing', 'Chord Root', 'Scale Notes'];
+let outputMode = 0;             // 0 = chord voicing, 1 = chord root, 2 = scale pitch classes
+const CHORD_ROOT_OFFSET = 24;   // chord root pc normalized two octaves up (MIDI 24-35)
+const SCALE_PC_OFFSET = 36;     // scale pcs normalized three octaves up (MIDI 36-47)
 
 // ---------------------------------------------------------------------------
 // Scale Navigator → Ableton Scale Mapping
@@ -49,12 +66,42 @@ const ROOT_TO_MIDI = {
 // These are the 7 scale classes from the 57-scale network
 const SCALE_CLASS_TO_ABLETON_NAME = {
     'diatonic': 'Major',
-    'acoustic': 'Melodic Minor',      // Ableton calls it "Melodic Minor"
+    'acoustic': 'Lydian Dominant',    // same root: c_acoustic = C Lydian Dominant (4th mode of G mel. min.)
     'harmonic_minor': 'Harmonic Minor',
     'harmonic_major': 'Harmonic Major',
     'whole_tone': 'Whole Tone',
     'octatonic': 'Half-whole Dim.',   // Ableton's name for octatonic
-    'hexatonic': null                  // No Ableton equivalent
+    'hexatonic': 'Messiaen 3'          // No exact equivalent; hexatonic is a subset of Messiaen 3 at the same root
+};
+
+// Scale class → display name shown on the device (Scale Navigator vocabulary)
+const SCALE_CLASS_DISPLAY = {
+    'diatonic': 'Diatonic',
+    'acoustic': 'Acoustic',
+    'harmonic_minor': 'Harmonic Minor',
+    'harmonic_major': 'Harmonic Major',
+    'whole_tone': 'Whole Tone',
+    'octatonic': 'Octatonic',
+    'hexatonic': 'Hexatonic'
+};
+
+// Symmetric scales have no root prefix in scaleData; the transposition number
+// implies the root (matches ScaleData.js in the Dashboard)
+const SYMMETRIC_SCALE_ROOTS = {
+    'whole_tone_1': 0, 'whole_tone_2': 1,
+    'octatonic_1': 0, 'octatonic_2': 1, 'octatonic_3': 2,
+    'hexatonic_1': 1, 'hexatonic_2': 2, 'hexatonic_3': 3, 'hexatonic_4': 4
+};
+
+// Scale class → intervals relative to root (from the Dashboard's ScaleData.js)
+const SCALE_CLASS_INTERVALS = {
+    'diatonic': [0, 2, 4, 5, 7, 9, 11],
+    'acoustic': [0, 2, 4, 6, 7, 9, 10],
+    'harmonic_minor': [0, 2, 3, 5, 7, 8, 11],
+    'harmonic_major': [0, 2, 4, 5, 7, 8, 11],
+    'whole_tone': [0, 2, 4, 6, 8, 10],
+    'octatonic': [0, 1, 3, 4, 6, 7, 9, 10],   // half-whole
+    'hexatonic': [0, 3, 4, 7, 8, 11]
 };
 
 // Root number to name (for display)
@@ -67,17 +114,26 @@ const ROOT_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 function parseScaleData(scaleData) {
     if (!scaleData || typeof scaleData !== 'string') return null;
 
-    // Format: "root_scaleclass" e.g., "g_harmonic_minor", "cs_diatonic", "bb_acoustic"
-    const underscoreIndex = scaleData.indexOf('_');
-    if (underscoreIndex === -1) return null;
+    const key = scaleData.toLowerCase();
+    let root, scaleClass;
 
-    const rootStr = scaleData.substring(0, underscoreIndex).toLowerCase();
-    const scaleClass = scaleData.substring(underscoreIndex + 1).toLowerCase();
+    if (SYMMETRIC_SCALE_ROOTS[key] !== undefined) {
+        // Symmetric scale: "octatonic_1", "whole_tone_2", "hexatonic_4"
+        root = SYMMETRIC_SCALE_ROOTS[key];
+        scaleClass = key.replace(/_\d+$/, '');
+    } else {
+        // Format: "root_scaleclass" e.g., "g_harmonic_minor", "cs_diatonic", "bb_acoustic"
+        const underscoreIndex = key.indexOf('_');
+        if (underscoreIndex === -1) return null;
 
-    const root = ROOT_TO_MIDI[rootStr];
-    if (root === undefined) {
-        maxApi.post(`Unknown root: "${rootStr}"`);
-        return null;
+        const rootStr = key.substring(0, underscoreIndex);
+        scaleClass = key.substring(underscoreIndex + 1);
+
+        root = ROOT_TO_MIDI[rootStr];
+        if (root === undefined) {
+            maxApi.post(`Unknown root: "${rootStr}"`);
+            return null;
+        }
     }
 
     const abletonScaleName = SCALE_CLASS_TO_ABLETON_NAME[scaleClass];
@@ -125,6 +181,23 @@ function resolveChordNotes(doc, chordData) {
     return lookupChordVoicing(chordData);
 }
 
+/**
+ * Resolve the pitch class (0-11) of the current chord's root.
+ * Priority: chordInfo.root from the room doc → chord symbol prefix ("a_m7-13" → 9)
+ */
+function resolveChordRoot(doc, chordData) {
+    const infoRoot = extractChordInfoRoot(doc);
+    if (infoRoot !== null) return infoRoot;
+    if (typeof chordData === 'string') {
+        const underscoreIndex = chordData.indexOf('_');
+        if (underscoreIndex > 0) {
+            const root = ROOT_TO_MIDI[chordData.substring(0, underscoreIndex).toLowerCase()];
+            if (root !== undefined) return root;
+        }
+    }
+    return null;
+}
+
 function sendNoteOffs() {
     for (const note of heldNotes) {
         maxApi.outlet('midiNote', note, 0);
@@ -132,8 +205,23 @@ function sendNoteOffs() {
     heldNotes = [];
 }
 
-function playChordNotes(notes) {
+/**
+ * Notes to sound for the current output mode.
+ */
+function currentOutputNotes() {
+    switch (outputMode) {
+        case 1:  // chord root, normalized two octaves up
+            return currentChordRoot !== null ? [currentChordRoot + CHORD_ROOT_OFFSET] : null;
+        case 2:  // scale pitch classes, normalized three octaves up
+            return currentScalePcs ? currentScalePcs.map(pc => pc + SCALE_PC_OFFSET) : null;
+        default: // chord voicing (absolute MIDI)
+            return currentChordNotes;
+    }
+}
+
+function refreshOutput() {
     sendNoteOffs();
+    const notes = currentOutputNotes();
     if (!playChords || !notes) return;
     for (const note of notes) {
         maxApi.outlet('midiNote', note, NOTE_VELOCITY);
@@ -299,6 +387,19 @@ function extractChordInfoVoicing(doc) {
     }
 }
 
+/**
+ * Extract chordInfo.root (pitch class 0-11) from the room doc, if present.
+ */
+function extractChordInfoRoot(doc) {
+    try {
+        const root = extractFieldValue(doc.fields.chordInfo.mapValue.fields.root);
+        if (typeof root === 'number' && root >= 0 && root <= 11) return root;
+        return null;
+    } catch (e) {
+        return null;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Polling Logic
 // ---------------------------------------------------------------------------
@@ -327,19 +428,22 @@ async function poll() {
                 // Send root_note for live.object (0-11)
                 maxApi.outlet('rootNote', parsed.root);
 
-                // Send display info
+                // Send display info (Scale Navigator vocabulary)
                 maxApi.outlet('rootName', parsed.rootName);
-                maxApi.outlet('scaleClass', parsed.scaleClass);
+                const display = SCALE_CLASS_DISPLAY[parsed.scaleClass] || parsed.scaleClass;
+                maxApi.outlet('scaleClass', display);
 
-                if (parsed.abletonScaleName !== null) {
-                    // Send scale_name for live.object (exact Ableton string)
-                    maxApi.outlet('scaleName', parsed.abletonScaleName);
-                    maxApi.post(`Scale: ${parsed.rootName} ${parsed.abletonScaleName}`);
-                } else {
-                    // Hexatonic - no Ableton equivalent, send warning
-                    maxApi.outlet('scaleName', '__hexatonic__');
-                    maxApi.post(`Scale: ${parsed.rootName} hexatonic (not in Ableton)`);
-                }
+                // Send scale_name for live.object (exact Ableton string)
+                maxApi.outlet('scaleName', parsed.abletonScaleName);
+                const approx = parsed.scaleClass === 'hexatonic' ? ' (superset approximation)' : '';
+                maxApi.post(`Scale: ${parsed.rootName} ${display} → Ableton ${parsed.abletonScaleName}${approx}`);
+
+                // Cache scale pitch classes for Scale Notes output mode
+                const intervals = SCALE_CLASS_INTERVALS[parsed.scaleClass];
+                currentScalePcs = intervals
+                    ? intervals.map(iv => (parsed.root + iv) % 12).sort((a, b) => a - b)
+                    : null;
+                if (outputMode === 2) refreshOutput();
             }
         }
 
@@ -350,7 +454,8 @@ async function poll() {
             maxApi.outlet('chord', chordData);
 
             currentChordNotes = resolveChordNotes(doc, chordData);
-            playChordNotes(currentChordNotes);
+            currentChordRoot = resolveChordRoot(doc, chordData);
+            if (outputMode !== 2) refreshOutput();
             if (currentChordNotes) {
                 maxApi.post(`Chord: ${chordData} → notes [${currentChordNotes.join(' ')}]`);
             } else {
@@ -358,9 +463,9 @@ async function poll() {
             }
         }
 
-        maxApi.outlet('status', 'connected');
+        setStatus('connected');
     } catch (err) {
-        maxApi.outlet('status', 'error');
+        setStatus('error');
         maxApi.post(`Error: ${err.message}`);
     }
 }
@@ -369,6 +474,7 @@ function startPolling() {
     stopPolling();
     if (config.roomCode) {
         config.enabled = true;
+        setStatus('ready');  // banner shows "connecting..." until first poll lands
         poll();  // Immediate first poll
         pollTimer = setInterval(poll, config.pollInterval);
         maxApi.post(`Polling room "${config.roomCode}" every ${config.pollInterval}ms`);
@@ -383,10 +489,11 @@ function stopPolling() {
     }
     sendNoteOffs();
     currentChordNotes = null;
+    currentChordRoot = null;
+    currentScalePcs = null;
     lastBpm = null;
     lastScaleData = null;
     lastChordData = null;
-    maxApi.outlet('status', 'disconnected');
 }
 
 // ---------------------------------------------------------------------------
@@ -418,7 +525,7 @@ maxApi.addHandler('interval', (ms) => {
 maxApi.addHandler('connect', () => {
     if (!config.roomCode) {
         maxApi.post('Cannot connect: no room code set');
-        maxApi.outlet('status', 'error');
+        setStatus('error');
         return;
     }
     startPolling();
@@ -426,21 +533,31 @@ maxApi.addHandler('connect', () => {
 
 maxApi.addHandler('disconnect', () => {
     stopPolling();
+    setStatus('disconnected');
     maxApi.post('Disconnected');
 });
 
-// Chord MIDI on/off (from device toggle). Default on.
+// Note output on/off (from device toggle). Default on.
 maxApi.addHandler('playChords', (val) => {
     const on = !!parseFloat(val);
     if (on === playChords) return;
     playChords = on;
     if (on) {
-        playChordNotes(currentChordNotes);  // resume current chord
-        maxApi.post('Chord MIDI: on');
+        refreshOutput();  // resume current mode's notes
+        maxApi.post('Note output: on');
     } else {
         sendNoteOffs();
-        maxApi.post('Chord MIDI: off');
+        maxApi.post('Note output: off');
     }
+});
+
+// Output mode (from device dropdown): 0 = chord voicing, 1 = chord root, 2 = scale notes
+maxApi.addHandler('mode', (m) => {
+    const mode = parseInt(m, 10);
+    if (isNaN(mode) || mode < 0 || mode >= OUTPUT_MODES.length || mode === outputMode) return;
+    outputMode = mode;
+    maxApi.post(`Output mode: ${OUTPUT_MODES[mode]}`);
+    refreshOutput();
 });
 
 // Manual poll (for testing)
@@ -458,4 +575,10 @@ maxApi.addHandler('info', () => {
 // ---------------------------------------------------------------------------
 
 maxApi.post('Firestore Bridge loaded');
-maxApi.outlet('status', 'ready');
+setStatus('ready');
+
+// This device is dedicated to the LA Laptop Orchestra: connect immediately.
+// (The 'room' handler still works for retargeting during testing.)
+const DEFAULT_ROOM = 'la-laptop-orchestra';
+config.roomCode = DEFAULT_ROOM;
+startPolling();

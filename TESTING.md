@@ -109,21 +109,21 @@ Test each scale class maps correctly:
 | scaleData | Expected Root | Expected Scale | Ableton Scale Name |
 |-----------|---------------|----------------|-------------------|
 | `c_diatonic` | C (0) | diatonic | Major |
-| `d_acoustic` | D (2) | acoustic | Melodic Minor |
+| `d_acoustic` | D (2) | acoustic | Lydian Dominant |
 | `e_harmonic_minor` | E (4) | harmonic_minor | Harmonic Minor |
 | `f_harmonic_major` | F (5) | harmonic_major | Harmonic Major |
-| `g_whole_tone` | G (7) | whole_tone | Whole Tone |
-| `a_octatonic` | A (9) | octatonic | Half-whole Dim. |
-| `b_hexatonic` | B (11) | hexatonic | ⚠️ Warning |
+| `whole_tone_2` | C# (1) | whole_tone | Whole Tone |
+| `octatonic_1` | C (0) | octatonic | Half-whole Dim. |
+| `hexatonic_4` | E (4) | hexatonic | Messiaen 3 (superset) |
 
-### 4.3 Hexatonic (No Ableton Equivalent)
+### 4.3 Hexatonic (Messiaen 3 Approximation)
 ```
-Set room scaleData: "c_hexatonic"
+Set room scaleData: "hexatonic_4"
 ```
-- [ ] Max console shows: `Scale: C hexatonic (not in Ableton)`
-- [ ] Root display shows "C"
-- [ ] Scale display shows "Hexatonic (not in Ableton)"
-- [ ] Ableton Scale Awareness **unchanged** (stays on previous scale)
+- [ ] Max console shows: `Scale: E Hexatonic → Ableton Messiaen 3 (superset approximation)`
+- [ ] Root display shows "E"
+- [ ] Scale display shows "Hexatonic"
+- [ ] Ableton Scale Awareness: Root = E, Scale = Messiaen 3 (contains all 6 hexatonic pitches)
 
 ### 4.4 All Root Notes
 Test root parsing for all pitch classes:
