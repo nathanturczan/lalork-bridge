@@ -1,22 +1,40 @@
-# Scale Navigator Bridge (M4L) — Project Notes
+# Scale Navigator Bridge / Ensemble Bridge (M4L) — Project Notes
 
-## CRITICAL: Refreeze workflow (the distributable is FROZEN)
+## Two devices, one JS
 
-`dist/Scale Navigator Bridge.amxd` is a **frozen** device with `firestore-bridge.js`
-embedded inside it. Editing `code/firestore-bridge.js` or the root .amxd does
-NOTHING to the distributable until it is refrozen.
+Both devices share `code/firestore-bridge.js` (which no longer auto-connects;
+it stays `idle` until it receives a `room <code>` message, and any room
+message auto-connects):
 
-After any change to the JS or the patch:
+- `Scale Navigator Bridge.amxd` (repo root) — dedicated LALORK build. The
+  patch sends `room la-laptop-orchestra` when the script reports `loaded`.
+- `Ensemble Bridge.amxd` (repo root) — generic product build. Room code
+  textedit (`room_field`) persisted with the Live set via
+  `pattr room_code @bindto room_field @parameter_enable 1`; on `loaded` a
+  `t b` bangs the textedit to re-deliver the restored room code. Status
+  select includes `idle` → "enter a room code above" banner.
 
-1. Deploy sources next to the unfrozen device in the User Library:
-   - `Scale Navigator Bridge.amxd` (repo root) and `code/firestore-bridge.js`
+The JS emits `loaded 1` after init (routed as the last `route` selector) so
+the patch never sends the room code before handlers are registered.
+
+## CRITICAL: Refreeze workflow (the distributables are FROZEN)
+
+`dist/*.amxd` are **frozen** devices with `firestore-bridge.js` embedded
+inside them. Editing `code/firestore-bridge.js` or the root .amxd files does
+NOTHING to the distributables until they are refrozen.
+
+After any change to the JS or a patch:
+
+1. Deploy sources next to the unfrozen devices in the User Library:
+   - `Scale Navigator Bridge.amxd`, `Ensemble Bridge.amxd` (repo root) and
+     `code/firestore-bridge.js`
      → `/Users/soney/Music/Ableton/User Library/Presets/MIDI Effects/Max MIDI Effect/`
    - (loose node files there were archived to `archive/` — restore
      `firestore-bridge.js` next to the .amxd for the freeze step)
-2. Nathan (GUI required): drag device onto a MIDI track → pencil icon (edit in
-   Max) → click the **snowflake** (Freeze Device) in the patcher's bottom
-   toolbar → Cmd+S → close editor
-3. Copy the frozen result from the User Library back to `dist/` in this repo
+2. Nathan (GUI required), for EACH device: drag device onto a MIDI track →
+   pencil icon (edit in Max) → click the **snowflake** (Freeze Device) in the
+   patcher's bottom toolbar → Cmd+S → close editor
+3. Copy the frozen results from the User Library back to `dist/` in this repo
 4. Verify the freeze (Claude can do this headlessly):
    - Frozen file directory lists the patcher + `firestore-bridge.js` (embedded
      JS size must match `code/firestore-bridge.js`)
@@ -46,8 +64,11 @@ Notes:
 
 - Headless harness: mock `max-api` in `/tmp/bridge-harness/node_modules/max-api`
   (post/outlet → console.log, addHandler → `_handlers` map), `process.chdir`
-  to `code/`, then `require` the bridge. It auto-connects to the live
-  `la-laptop-orchestra` room.
+  to `code/`, then `require` the bridge and call
+  `maxApi._handlers['room']('la-laptop-orchestra')` (the JS no longer
+  auto-connects). Run with `NODE_PATH=/tmp/bridge-harness/node_modules`.
+- Deterministic tests: `/tmp/bridge-harness/test-paths.js` (monkeypatches
+  `https.get`; 8 scenarios incl. idle-at-load and room-clear).
 - Live room doc: `https://firestore.googleapis.com/v1/projects/scale-navigator-ensemble/databases/(default)/documents/rooms/la-laptop-orchestra`
 
 ## Open issues

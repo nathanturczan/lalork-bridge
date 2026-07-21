@@ -522,12 +522,19 @@ function stopPolling() {
 // ---------------------------------------------------------------------------
 
 maxApi.addHandler('room', (roomCode) => {
-    config.roomCode = roomCode;
-    config.resolvedDocId = null;  // Clear cached doc ID for re-resolution
-    maxApi.post(`Room code set to "${roomCode}"`);
-    if (config.enabled) {
-        startPolling();  // Restart with new room
+    const code = (roomCode === undefined || roomCode === null) ? '' : String(roomCode).trim();
+    if (!code) {
+        config.roomCode = null;
+        config.resolvedDocId = null;
+        stopPolling();
+        setStatus('idle');
+        maxApi.post('Room code cleared');
+        return;
     }
+    config.roomCode = code;
+    config.resolvedDocId = null;  // Clear cached doc ID for re-resolution
+    maxApi.post(`Room code set to "${code}"`);
+    startPolling();  // Auto-connect whenever a room is set
 });
 
 maxApi.addHandler('project', (projectId) => {
@@ -596,10 +603,14 @@ maxApi.addHandler('info', () => {
 // ---------------------------------------------------------------------------
 
 maxApi.post('Firestore Bridge loaded');
-setStatus('ready');
 
-// This device is dedicated to the LA Laptop Orchestra: connect immediately.
-// (The 'room' handler still works for retargeting during testing.)
-const DEFAULT_ROOM = 'la-laptop-orchestra';
-config.roomCode = DEFAULT_ROOM;
-startPolling();
+// No room is set at load time. The patch supplies one:
+// - LALORK build: loadbang -> "room la-laptop-orchestra"
+// - Ensemble Bridge: pattr-persisted textedit -> "room <code>"
+// Receiving a room code auto-connects (see 'room' handler above).
+setStatus('idle');
+
+// Tell the patch the script is running and handlers are registered, so it can
+// safely deliver the room code (loadbang messages can arrive before the
+// script starts; this closes that race).
+maxApi.outlet('loaded', 1);
