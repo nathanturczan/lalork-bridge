@@ -25,11 +25,13 @@ After any change to the JS or the patch:
      goes green with no loose files in the search path
 
 Notes:
-- Freezing does NOT embed `chords_no_supersets.json` (Node for Max only embeds
-  the object-box script). That's fine: current rooms provide
-  `chordInfo.voicing`/`root` (Harmony Payload v2); the DB is only a fallback
-  for ancient Dashboard-hosted rooms. If ever needed, inline the DB into the
-  JS and refreeze.
+- The chord DB IS now inlined into `firestore-bridge.js` as `const CHORD_DB`
+  (trimmed to `{ v: voicing, r: root }` per id, ~58KB). Regenerate after DB
+  changes with `python3 scripts/inline-chord-db.py` (reads
+  `code/chords_no_supersets.json`, rewrites the CHORD_DB line in place).
+  This matters because many clients (e.g. NotesChordScales) write `chordData`
+  WITHOUT `chordInfo`; the bridge only trusts `chordInfo` when
+  `chordInfo.id === chordData`, otherwise it falls back to CHORD_DB.
 - `package.json` is not needed (zero npm deps; `max-api` is provided by Max).
 
 ## amxd file format (for scripted patch edits)
