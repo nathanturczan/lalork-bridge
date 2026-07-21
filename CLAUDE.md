@@ -13,6 +13,13 @@ message auto-connects):
   `pattr room_code @bindto room_field @parameter_enable 1`; on `loaded` a
   `t b` bangs the textedit to re-deliver the restored room code. Status
   select includes `idle` → "enter a room code above" banner.
+  Lobby: umenu + refresh button → `refreshRooms` (JS lists the public
+  `rooms` collection, outlets `rooms clear/append <roomName>`, most recently
+  updated first) and picking an item sends `selectRoom <index>`; the JS
+  connects by doc ID and outlets `roomcode <name>` which is `set` into the
+  textedit (so the pick persists with the set). The room field accepts doc
+  IDs, slugs, OR roomNames (case-insensitive; spaces OK — `room` handler
+  joins args).
 
 The JS emits `loaded 1` after init (routed as the last `route` selector) so
 the patch never sends the room code before handlers are registered.

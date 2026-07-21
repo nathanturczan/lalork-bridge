@@ -293,6 +293,31 @@ function httpPost(url, body) {
     });
 }
 
+// Lobby: cached list of rooms [{ id, name, updated }], most recent first
+let roomList = [];
+
+function buildRoomListUrl() {
+    return `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/(default)/documents/rooms?pageSize=300&mask.fieldPaths=roomName`;
+}
+
+async function fetchRoomList() {
+    const res = await httpGet(buildRoomListUrl());
+    if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
+    const docs = JSON.parse(res.data).documents || [];
+    const list = docs.map(d => {
+        const id = d.name.split('/').pop();
+        let name = id;
+        try {
+            const n = d.fields.roomName.stringValue;
+            if (n) name = n;
+        } catch (e) { /* no roomName field */ }
+        return { id, name, updated: d.updateTime || '' };
+    });
+    list.sort((a, b) => (a.updated < b.updated ? 1 : -1));
+    roomList = list;
+    return list;
+}
+
 async function resolveRoomId(slugOrId) {
     // 1. Try direct document ID lookup
     const directUrl = buildFirestoreUrl(slugOrId);
@@ -328,6 +353,20 @@ async function resolveRoomId(slugOrId) {
         } catch (e) {
             // Query failed, fall through
         }
+    }
+
+    // 3. Match by roomName (case-insensitive) against the room list, so users
+    // can type/paste the ensemble name shown in the Rehearse/NCS apps.
+    // Most recently updated room wins on duplicate names.
+    try {
+        const list = await fetchRoomList();
+        const target = slugOrId.trim().toLowerCase();
+        const match = list.find(r => r.name.trim().toLowerCase() === target);
+        if (match) {
+            return match.id;
+        }
+    } catch (e) {
+        // List failed, fall through
     }
 
     return null;
@@ -521,8 +560,10 @@ function stopPolling() {
 // Max Message Handlers
 // ---------------------------------------------------------------------------
 
-maxApi.addHandler('room', (roomCode) => {
-    const code = (roomCode === undefined || roomCode === null) ? '' : String(roomCode).trim();
+maxApi.addHandler('room', (...parts) => {
+    // Room names can contain spaces ("Dylan's Band") and arrive as multiple args
+    const code = parts.filter(p => p !== undefined && p !== null)
+        .map(p => String(p)).join(' ').trim();
     if (!code) {
         config.roomCode = null;
         config.resolvedDocId = null;
@@ -535,6 +576,32 @@ maxApi.addHandler('room', (roomCode) => {
     config.resolvedDocId = null;  // Clear cached doc ID for re-resolution
     maxApi.post(`Room code set to "${code}"`);
     startPolling();  // Auto-connect whenever a room is set
+});
+
+// Lobby: fetch all ensembles and populate the device's dropdown
+maxApi.addHandler('refreshRooms', async () => {
+    try {
+        const list = await fetchRoomList();
+        maxApi.outlet('rooms', 'clear');
+        for (const r of list) {
+            maxApi.outlet('rooms', 'append', r.name);
+        }
+        maxApi.post(`Lobby: ${list.length} ensembles`);
+    } catch (err) {
+        maxApi.post(`Lobby refresh failed: ${err.message}`);
+    }
+});
+
+// Lobby: connect to the Nth room in the last-fetched list (dropdown index)
+maxApi.addHandler('selectRoom', (index) => {
+    const i = parseInt(index, 10);
+    if (isNaN(i) || i < 0 || i >= roomList.length) return;
+    const r = roomList[i];
+    config.roomCode = r.id;
+    config.resolvedDocId = r.id;  // already resolved, skip lookup
+    maxApi.outlet('roomcode', r.name);  // patch mirrors into the room field (persisted)
+    maxApi.post(`Room selected from lobby: "${r.name}" (${r.id})`);
+    startPolling();
 });
 
 maxApi.addHandler('project', (projectId) => {
