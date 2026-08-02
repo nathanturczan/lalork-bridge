@@ -29,6 +29,9 @@ let lastChordData = null;
 let lastStatus = null;
 let pollTimer = null;
 
+// Connection generation: incremented on every connect/disconnect to invalidate stale async callbacks
+let connectionGeneration = 0;
+
 // Emit status to the UI banner only when it changes (poll runs every 500ms)
 function setStatus(s) {
     if (s === lastStatus) return;
@@ -467,8 +470,17 @@ function extractChordInfoRoot(doc) {
 async function poll() {
     if (!config.enabled || !config.roomCode) return;
 
+    // Capture generation before async work to detect stale callbacks
+    const myGeneration = connectionGeneration;
+
     try {
         const doc = await fetchRoomDocument();
+
+        // Check if connection changed while we were waiting
+        if (myGeneration !== connectionGeneration) {
+            maxApi.post('Poll result discarded (connection changed)');
+            return;
+        }
 
         // --- BPM ---
         const bpm = extractBpm(doc);
@@ -524,7 +536,14 @@ async function poll() {
         }
 
         setStatus('connected');
+        // Output roomcode so the patch can show room-specific status
+        maxApi.outlet('roomcode', config.roomCode);
     } catch (err) {
+        // Check if connection changed while we were waiting
+        if (myGeneration !== connectionGeneration) {
+            maxApi.post('Poll error discarded (connection changed)');
+            return;
+        }
         setStatus('error');
         maxApi.post(`Error: ${err.message}`);
     }
@@ -533,6 +552,8 @@ async function poll() {
 function startPolling() {
     stopPolling();
     if (config.roomCode) {
+        // Increment generation for the new connection
+        connectionGeneration++;
         config.enabled = true;
         setStatus('ready');  // banner shows "connecting..." until first poll lands
         poll();  // Immediate first poll
@@ -542,6 +563,9 @@ function startPolling() {
 }
 
 function stopPolling() {
+    // Increment generation to invalidate any in-flight async poll callbacks
+    connectionGeneration++;
+
     config.enabled = false;
     if (pollTimer) {
         clearInterval(pollTimer);
@@ -554,6 +578,13 @@ function stopPolling() {
     lastBpm = null;
     lastScaleData = null;
     lastChordData = null;
+
+    // Output clear values so the patch can reset displays
+    maxApi.outlet('roomcode', '');  // empty roomcode signals disconnected
+    maxApi.outlet('bpm', 120);      // default BPM
+    maxApi.outlet('rootName', '');  // clear scale root
+    maxApi.outlet('scaleClass', ''); // clear scale class
+    maxApi.outlet('chord', '');     // clear chord
 }
 
 // ---------------------------------------------------------------------------
