@@ -1,0 +1,65 @@
+$Page LA Laptop Orchestra
+$TargetName Home
+
+Use this Live Set for both rehearsal and performance. The room you join determines which harmony the instruments follow.
+
+*Rehearsal*
+
+Open $Link rehearse.laptoporchestra.com <https://rehearse.laptoporchestra.com>. A private rehearsal room is created just for you. As the 12-minute piece advances, its scale, chord, and tempo change at the scored timecodes.
+
+Copy your rehearsal code, paste it into the *Rehearsal* tab, and click *Join*.
+
+*Live Performance*
+
+Open $Link enter.laptoporchestra.com <https://enter.laptoporchestra.com>. Switch to the *Performance* tab—it auto-connects to the live ensemble.
+
+All devices in this Set share one connection. Each track has its own Output setting.
+
+*Tracks*
+-> $Link Chord Notes <GotoPage:Chord Notes>
+-> $Link Chord Root <GotoPage:Chord Root>
+-> $Link Scale Notes <GotoPage:Scale Notes>
+
+Harmony powered by $Link Scale Navigator <https://scalenavigator.com>.
+
+
+
+$Comment --------------------------------------------------------------------------------
+$Page Chord Notes
+$TargetName Chord Notes
+
+*Chord Notes*
+
+Outputs the notes of the current chord. Use it for pads, arpeggios, and other polyphonic parts.
+
+Set the *Output* dropdown to *Chord Voicing*.
+
+$Link Back <GotoPage:Home>
+
+
+
+$Comment --------------------------------------------------------------------------------
+$Page Chord Root
+$TargetName Chord Root
+
+*Chord Root*
+
+Outputs the root of the current chord. Use it for bass lines and monophonic parts.
+
+Set the *Output* dropdown to *Chord Root*.
+
+$Link Back <GotoPage:Home>
+
+
+
+$Comment --------------------------------------------------------------------------------
+$Page Scale Notes
+$TargetName Scale Notes
+
+*Scale Notes*
+
+Outputs notes from the current scale. Use it for melodies and improvisation beyond the current chord.
+
+Set the *Output* dropdown to *Scale Notes*.
+
+$Link Back <GotoPage:Home>
