@@ -180,14 +180,14 @@ Put an instrument (e.g., a piano) on the same track as the device. Play with Liv
 Room chord = Cmaj7 (chordInfo from Dashboard), NoteSource = Chord
 ```
 - [ ] Chord display shows the chord name
-- [ ] Playing white keys upward from C4 yields 48, 52, 55, 59, 60, 64, 67, 71, 72
-- [ ] C4 always plays the first palette note (the chord root near C3)
+- [ ] Playing white keys upward from input MIDI 60 yields MIDI 36, 40, 43, 47, 48, 52, 55, 59, 60
+- [ ] Input 60 always plays the first palette note (the chord root near MIDI 36)
 - [ ] Velocity follows how hard you play; releasing a key stops its note
 - [ ] Black keys produce nothing (pressed or released)
 
 ### 5.3 Root and Scale NoteSources
-- [ ] NoteSource = Root: A S D play the chord root near C1, F G H the fifth (a chord without a perfect fifth uses the nearest chord tone, e.g. m7♭5 → ♭5), J K L the root an octave up; sound at every CMK octave setting, never silence
-- [ ] NoteSource = Scale: white keys from C4 walk the scale's tones sorted in a fixed C3–B3 window (anchored at C, not the scale root)
+- [ ] NoteSource = Root: A S D play the chord root near MIDI 24, F G H the fifth (a chord without a perfect fifth uses the nearest chord tone, e.g. m7♭5 → ♭5; ties pick the higher), J K L the root an octave up; sound at every CMK octave setting, never silence
+- [ ] NoteSource = Scale: white keys from input 60 walk the scale's tones sorted in a fixed MIDI 48–59 window (anchored at C, not the scale root)
 - [ ] Change the scale by one tone (e.g., C diatonic → G diatonic): only the changed tone's key re-pitches; keys for shared tones keep their notes
 - [ ] Switching NoteSource while holding notes re-pitches them (no stuck notes, no double attacks on unchanged pitches)
 

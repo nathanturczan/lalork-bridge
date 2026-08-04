@@ -48,15 +48,15 @@ Firestore room doc (public read)
 
 ## Playing (Stack White)
 
-The mapping is Tonalign's **Stack White** algorithm: white keys select successive notes of a harmony palette, wrapping up an octave when the palette is exhausted; black keys are blocked (their note-ons and note-offs are dropped). C4 always plays the first palette note. Palettes are based near C3 so parts sit in a playable register. Example — Cmaj7 palette `[48, 52, 55, 59]`, playing white keys upward from C4 yields `48, 52, 55, 59, 60, 64, 67, 71, 72`.
+The mapping is Tonalign's **Stack White** algorithm: white keys select successive notes of a harmony palette, wrapping up an octave when the palette is exhausted; black keys are blocked (their note-ons and note-offs are dropped). Input MIDI 60 (the CMK's default A key) always plays the first palette note. Example — Cmaj7 palette `[36, 40, 43, 47]`, playing white keys upward from input 60 yields `36, 40, 43, 47, 48, 52, 55, 59, 60`. (Pitches below are MIDI note numbers; Live's display names them an octave lower than scientific pitch, e.g. MIDI 36 shows as C1.)
 
 A **NoteSource** dropdown selects the palette, so you can put one instance on each of several tracks:
 
 | NoteSource | Palette |
 |------------|---------|
-| **Chord** (default) | The current chord's pitch classes, ascending close position from the chord root (placed near C3) |
-| **Root** | Bass zones: A S D play the chord root (near C1), F G H its fifth (the chord tone nearest a perfect fifth if there isn't one), J K L the root an octave up; the pattern continues in both directions |
-| **Scale** | The current scale's tones placed in a fixed C3–B3 window, sorted ascending — anchored at C, **not** the scale root, so a parsimonious scale change moves as few keys as possible (shared tones stay on the same keys) |
+| **Chord** (default) | The current chord's pitch classes, ascending close position from the chord root (placed near MIDI 36) |
+| **Root** | Bass zones: A S D play the chord root (near MIDI 24), F G H the chord tone nearest a perfect fifth above it (ties pick the higher tone), J K L the root an octave up; the pattern continues in both directions |
+| **Scale** | The current scale's tones placed in a fixed MIDI 48–59 window, sorted ascending — anchored at C, **not** the scale root, so a parsimonious scale change moves as few keys as possible (shared tones stay on the same keys) |
 
 Behavior details:
 - Velocity is preserved; original incoming notes are suppressed; non-note MIDI (CC, bend, aftertouch) passes through

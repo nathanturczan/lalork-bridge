@@ -91,7 +91,7 @@ function ok(name, fn) {
 // ---------------------------------------------------------------------------
 
 async function main() {
-    // Cmaj7: root 0, voicing pcs {0,4,7,11} -> palette [48,52,55,59]
+    // Cmaj7: root 0, voicing pcs {0,4,7,11} -> palette [36,40,43,47]
     mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'cmaj7-test', root: 0, voicing: [48, 52, 67, 71] });
 
     require('../code/firestore-bridge.js');
@@ -106,19 +106,19 @@ async function main() {
         assert.deepStrictEqual(midiEvents(), []);
     });
 
-    ok('Chord palette succession from C4 (48,52,55,59,60,64,67,71,72)', () => {
+    ok('Chord palette succession from C4 (36,40,43,47,48,52,55,59,60)', () => {
         clearMidi();
         const whiteKeys = [60, 62, 64, 65, 67, 69, 71, 72, 74]; // C4..D5, A..; on CMK
         whiteKeys.forEach((p, i) => handlers.noteIn(p, 100 - i, 1));
         assert.deepStrictEqual(midiEvents(), [
-            [48, 100], [52, 99], [55, 98], [59, 97],
-            [60, 96], [64, 95], [67, 94], [71, 93], [72, 92]
+            [36, 100], [40, 99], [43, 98], [47, 97],
+            [48, 96], [52, 95], [55, 94], [59, 93], [60, 92]
         ]);
         clearMidi();
         whiteKeys.forEach(p => handlers.noteIn(p, 0, 1));  // vel-0 note-on = note-off
         assert.deepStrictEqual(midiEvents(), [
-            [48, 0], [52, 0], [55, 0], [59, 0],
-            [60, 0], [64, 0], [67, 0], [71, 0], [72, 0]
+            [36, 0], [40, 0], [43, 0], [47, 0],
+            [48, 0], [52, 0], [55, 0], [59, 0], [60, 0]
         ]);
     });
 
@@ -216,21 +216,21 @@ async function main() {
         clearMidi();
         handlers.noteIn(60, 100, 1);
         handlers.noteIn(60, 110, 1);
-        assert.deepStrictEqual(midiEvents(), [[48, 100], [48, 0], [48, 110]]);
+        assert.deepStrictEqual(midiEvents(), [[36, 100], [36, 0], [36, 110]]);
         clearMidi();
         handlers.noteIn(60, 0, 1);
-        assert.deepStrictEqual(midiEvents(), [[48, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[36, 0]]);
     });
 
     ok('refcount: same output held on two channels releases once', () => {
         clearMidi();
         handlers.noteIn(60, 100, 1);
         handlers.noteIn(60, 100, 2);   // same output, no duplicate note-on
-        assert.deepStrictEqual(midiEvents(), [[48, 100]]);
+        assert.deepStrictEqual(midiEvents(), [[36, 100]]);
         handlers.noteIn(60, 0, 1);     // ch2 still holds it - no note-off yet
-        assert.deepStrictEqual(midiEvents(), [[48, 100]]);
+        assert.deepStrictEqual(midiEvents(), [[36, 100]]);
         handlers.noteIn(60, 0, 2);
-        assert.deepStrictEqual(midiEvents(), [[48, 100], [48, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[36, 100], [36, 0]]);
     });
 
     console.log('held-note changes:');
@@ -238,30 +238,30 @@ async function main() {
     // harmony change re-pitches held notes (off before on, velocity kept)
     {
         clearMidi();
-        handlers.noteIn(60, 100, 1);   // Cmaj7 chord palette -> 48
-        handlers.noteIn(62, 90, 1);    //                     -> 52
-        // Dm7: root 2, pcs {2,5,9,0} -> palette [50,53,57,60]
+        handlers.noteIn(60, 100, 1);   // Cmaj7 chord palette -> 36
+        handlers.noteIn(62, 90, 1);    //                     -> 40
+        // Dm7: root 2, pcs {2,5,9,0} -> palette [38,41,45,48]
         mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'dm7-test', root: 2, voicing: [50, 53, 57, 60] });
         handlers.poll();
         await sleep(50);
         const ev = midiEvents();
-        assert.deepStrictEqual(ev.slice(0, 2), [[48, 100], [52, 90]]);
-        assert.deepStrictEqual(ev.slice(2), [[48, 0], [52, 0], [50, 100], [53, 90]],
+        assert.deepStrictEqual(ev.slice(0, 2), [[36, 100], [40, 90]]);
+        assert.deepStrictEqual(ev.slice(2), [[36, 0], [40, 0], [38, 100], [41, 90]],
             `remap events wrong: ${JSON.stringify(ev)}`);
         clearMidi();
         // note-offs stop the NEW pitches
         handlers.noteIn(60, 0, 1);
         handlers.noteIn(62, 0, 1);
-        assert.deepStrictEqual(midiEvents(), [[50, 0], [53, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[38, 0], [41, 0]]);
         passed++;
         console.log('  ok - harmony change re-pitches held notes (off before on, velocity kept)');
     }
 
     ok('NoteSource change re-pitches held notes', () => {
         clearMidi();
-        handlers.noteIn(62, 100, 1);   // Dm7 chord palette -> 53
+        handlers.noteIn(62, 100, 1);   // Dm7 chord palette -> 41
         handlers.mode(1);              // Root: palette [26x3,33x3] -> S key = root 26
-        assert.deepStrictEqual(midiEvents(), [[53, 100], [53, 0], [26, 100]]);
+        assert.deepStrictEqual(midiEvents(), [[41, 100], [41, 0], [26, 100]]);
         clearMidi();
         handlers.noteIn(62, 0, 1);
         assert.deepStrictEqual(midiEvents(), [[26, 0]]);
@@ -298,7 +298,7 @@ async function main() {
         handlers.noteIn(62, 90, 1);
         handlers.ccIn(0, 123);
         const ev = midiEvents();
-        assert.deepStrictEqual(ev.slice(2).sort((a, b) => a[0] - b[0]), [[50, 0], [53, 0]]);
+        assert.deepStrictEqual(ev.slice(2).sort((a, b) => a[0] - b[0]), [[38, 0], [41, 0]]);
         clearMidi();
         handlers.noteIn(60, 0, 1);     // bookkeeping cleared - nothing to release
         assert.deepStrictEqual(midiEvents(), []);
@@ -308,7 +308,7 @@ async function main() {
         clearMidi();
         handlers.noteIn(60, 100, 1);
         handlers.flush();
-        assert.deepStrictEqual(midiEvents(), [[50, 100], [50, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[38, 100], [38, 0]]);
     });
 
     ok('disconnect releases held notes (no stuck notes)', () => {
@@ -316,7 +316,7 @@ async function main() {
         handlers.noteIn(60, 100, 1);
         handlers.disconnect();
         const ev = midiEvents();
-        assert.deepStrictEqual(ev, [[50, 100], [50, 0]]);
+        assert.deepStrictEqual(ev, [[38, 100], [38, 0]]);
     });
 
     ok('after disconnect, input generates nothing (no palette)', () => {

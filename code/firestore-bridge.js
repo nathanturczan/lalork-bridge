@@ -256,7 +256,7 @@ function placeNear48(pc) {
 
 /**
  * Ascending close-position palette from pitch classes, starting at the root
- * placed nearest C3. Cmaj7 pcs {0,4,7,11} root 0 -> [48, 52, 55, 59].
+ * placed nearest C2. Cmaj7 pcs {0,4,7,11} root 0 -> [36, 40, 43, 47].
  */
 function paletteFromPcs(pcs, rootPc) {
     if (!pcs || pcs.length === 0) return null;
@@ -264,7 +264,7 @@ function paletteFromPcs(pcs, rootPc) {
     let root = (rootPc === null || rootPc === undefined) ? uniq[0] : ((rootPc % 12) + 12) % 12;
     if (uniq.indexOf(root) === -1) root = uniq[0];
     const start = uniq.indexOf(root);
-    const palette = [placeNear48(root)];
+    const palette = [placeNear48(root) - 12];
     let prevPc = root;
     for (let i = 1; i < uniq.length; i++) {
         const pc = uniq[(start + i) % uniq.length];
