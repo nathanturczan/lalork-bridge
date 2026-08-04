@@ -61,7 +61,30 @@ root (already synced from the canonical `code/firestore-bridge.js`).
 8. Check the **Lessons** pane shows the updated text (Playing section: "Press 1, 2,
    and 3…"). The text lives in
    `bundle/LA Laptop Orchestra/LA Laptop Orchestra Lessons/LessonsEN.txt` (already updated).
-9. **Save the set** (Cmd+S). Close Live.
+9. **Save the set** (Cmd+S).
+
+## Part B2 — Capture the Lesson screenshots
+
+The Lesson text already references these images. Three key-diagram PNGs
+(ChordKeys / RootKeys / ScaleKeys) are already generated and in place; **four
+screenshots must be captured by hand** or the Lessons pane will show stray
+filenames. Save them as PNG **next to `LessonsEN.txt`** in
+`bundle/LA Laptop Orchestra/LA Laptop Orchestra Lessons/`:
+
+| File | What to capture (tight crop, ~500–650 px wide) |
+|---|---|
+| `BridgeFollowing.png` | The Bridge device with the green `● FOLLOWING LALORK` banner (crop to the device) |
+| `ArmKeys.png` | The three track headers — names `1 Chord` / `2 Root` / `3 Scale`, colors visible, Arm buttons red |
+| `ComputerMIDIKeyboard.png` | The Computer MIDI Keyboard switch in Live's upper-right control bar |
+| `RehearseJoin.png` | rehearse.laptoporchestra.com showing a rehearsal code (once the site is live) |
+
+Tips: Cmd+Shift+4 for a region screenshot; retina Macs capture at 2x — either
+resize to ~600 px wide with Preview, or put the full-res copy in the `Large/`
+subfolder under the same filename and the resized one next to the txt (that's
+Ableton's own convention: `Large/` holds the 2x versions).
+
+Then reopen the Lessons pane (View → Lessons) and confirm every page shows its
+images — no literal `*.png` text anywhere. Close Live.
 
 ## Part C — Re-zip and standalone test
 

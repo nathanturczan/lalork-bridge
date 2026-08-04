@@ -8,18 +8,22 @@ Use this Live Set for both rehearsal and performance. The room you join determin
 Open $Link rehearse.laptoporchestra.com <https://rehearse.laptoporchestra.com>. A private rehearsal room is created just for you. As the 12-minute piece advances, its scale, chord, and tempo change at the scored timecodes.
 
 Copy your rehearsal code, paste it into the *Rehearsal* tab, and click *Join*.
+RehearseJoin.png
 
 *Live Performance*
 
 Open $Link enter.laptoporchestra.com <https://enter.laptoporchestra.com>. Switch to the *Performance* tab—it auto-connects to the live ensemble.
 
-All devices in this Set share one connection.
+All devices in this Set share one connection. When the banner turns green, you're in.
+BridgeFollowing.png
 
 *Playing*
 
 Press *1*, *2*, and *3* to turn the Chord, Root, and Scale layers on or off. A red Arm button means the layer is on.
+ArmKeys.png
 
 Use Live's Computer MIDI Keyboard to play the armed layers. Press *M* to enable it, then play the *A–L* row of your keyboard. Only the white keys sound, and every note you play is always in harmony—the Bridge re-pitches your keys to the current chord and scale.
+ComputerMIDIKeyboard.png
 
 If arming one layer turns another off, disable *Exclusive Arm* in Live's Preferences (Record, Warp & Launch).
 
@@ -45,6 +49,7 @@ $TargetName Chord
 *Chord*
 
 Your white keys step through the notes of the current chord, from its root upward. Use it for pads, arpeggios, and other polyphonic parts.
+ChordKeys.png
 
 The device's *NoteSource* is set to *Chord*.
 
@@ -59,6 +64,7 @@ $TargetName Root
 *Root*
 
 *A*, *S*, and *D* play the root of the current chord. *F*, *G*, and *H* play its fifth, and *J*, *K*, and *L* the root an octave up. Use it for bass lines.
+RootKeys.png
 
 The device's *NoteSource* is set to *Root*.
 
@@ -73,6 +79,7 @@ $TargetName Scale
 *Scale*
 
 Your white keys walk the current scale, step by step. When the scale changes, most keys keep their notes—only the changed tones move. Use it for melodies and improvisation beyond the current chord.
+ScaleKeys.png
 
 The device's *NoteSource* is set to *Scale*.
 
