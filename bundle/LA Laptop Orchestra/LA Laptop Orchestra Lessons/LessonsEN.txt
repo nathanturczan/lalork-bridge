@@ -5,14 +5,14 @@ Use this Live Set for both rehearsal and performance. The room you join determin
 
 *Rehearsal*
 
-Open $Link rehearse.laptoporchestra.com <https://rehearse.laptoporchestra.com>. A private rehearsal room is created just for you. As the 12-minute piece advances, its scale, chord, and tempo change at the scored timecodes.
+Open $Link rehearse.lalaptoporchestra.com <https://rehearse.lalaptoporchestra.com>. A private rehearsal room is created just for you. As the 12-minute piece advances, its scale, chord, and tempo change at the scored timecodes.
 
 Copy your rehearsal code, paste it into the *Rehearsal* tab, and click *Join.*
 RehearseJoin.png
 
 *Live Performance*
 
-Open $Link enter.laptoporchestra.com <https://enter.laptoporchestra.com>. Switch to the *Performance* tab—it auto-connects to the live ensemble.
+Open $Link enter.lalaptoporchestra.com <https://enter.lalaptoporchestra.com>. Switch to the *Performance* tab—it auto-connects to the live ensemble.
 
 All devices in this Set share one connection. When the banner lights up, you're in.
 BridgeFollowing.png
