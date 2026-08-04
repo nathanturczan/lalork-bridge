@@ -23,6 +23,12 @@ Use Live's Computer MIDI Keyboard to play the armed layers. Press *M* to enable 
 
 If arming one layer turns another off, disable *Exclusive Arm* in Live's Preferences (Record, Warp & Launch).
 
+*Add Your Own Instruments*
+
+The Bridge also sets Live's global *Scale*, so any scale-aware device follows the ensemble automatically. Add your own MIDI tracks with Arpeggiator, MIDI Transformations, Push, or any scale-aware instrument—just make sure *Scale* is on. Everything you play or sequence stays in the ensemble's harmony.
+
+One Bridge device is enough to keep the whole Set in sync.
+
 *Tracks*
 -> $Link Chord <GotoPage:Chord>
 -> $Link Root <GotoPage:Root>

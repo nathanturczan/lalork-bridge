@@ -327,6 +327,31 @@ predate this redesign — the freeze → template rebuild → re-zip → standal
 test sequence is written up as `NATHAN_GUI_PROCEDURE.md`. Until it runs, the
 old frozen device in `bundle/` remains the working Aug 15 fallback.
 
+## The multiplier: one Bridge makes the whole Set scale-aware
+
+The quiet payoff of the whole design, easy to miss while staring at the played
+layers: the Bridge doesn't just remap its own track's notes — it sets **Live's
+global Scale** (root + scale name) directly through the LOM, and tempo with it.
+That state is Set-wide. Every **scale-aware** device in Live 12 — Arpeggiator,
+the MIDI Transformation/Generator tools, Push layouts, Wavetable, scale-aware
+third-party plugins, clips with Scale on — follows it automatically.
+
+So the instrument scales in two independent directions:
+
+- **Played layers** (Chord / Root / Scale NoteSources) need one Bridge per
+  track, because the remapping happens in the device's own MIDI path.
+- **Harmony sync** needs exactly **one** Bridge in the Set, anywhere. Add as
+  many MIDI tracks as you like, turn Scale on, load any scale-aware devices,
+  and everything sequenced or played on them stays in the ensemble's harmony —
+  zero extra wiring, zero extra Firestore reads.
+
+This is why sync was built idempotent across instances (any Bridge sets the
+same values; multiple instances coexist): the three-track template works out of
+the box, and a player who deletes two Bridges to build their own scale-aware
+rig loses nothing. The Bridge is both an instrument and the Set's harmonic
+clock; the entire Live 12 scale-aware ecosystem becomes the ensemble's
+instrument palette for free.
+
 ## Decision log
 
 | Decision | Status |
@@ -352,6 +377,7 @@ old frozen device in `bundle/` remains the working Aug 15 fallback.
 | Scale as fixed C-anchored MIDI 48–59 window (parsimonious scale changes) | **Adopted** — over C→C#→B anchor chain (identical for 54/57 scales; window is stateless) |
 | Chord window-anchored like Scale | **Rejected** — stays root-anchored close position near MIDI 36 |
 | Docs use raw MIDI note numbers | **Adopted** — Live shows MIDI 60 as C3; octave names are vendor-relative |
+| One Bridge syncs global Scale Awareness for the whole Set (scale-aware devices follow free) | **Adopted** — sync is idempotent; played layers still one Bridge per track |
 | Device-side velocity synthesis for CMK (fixed-velocity input) | **Rejected** — velocity passed through; C/V steps + hardware controllers suffice |
 | Branch-first rollout; frozen device is Aug 15 fallback | **Standing** — code merged; old frozen bundle stays fallback until artifacts rebuilt |
 
