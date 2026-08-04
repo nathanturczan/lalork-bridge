@@ -63,27 +63,15 @@ root (already synced from the canonical `code/firestore-bridge.js`).
    `bundle/LA Laptop Orchestra/LA Laptop Orchestra Lessons/LessonsEN.txt` (already updated).
 9. **Save the set** (Cmd+S).
 
-## Part B2 — Capture the Lesson screenshots
+## Part B2 — Verify the Lesson screenshots
 
-The Lesson text already references these images. In place (Aug 4): the three
-generated key diagrams (ChordKeys / RootKeys / ScaleKeys) and six captured
-screenshots (RehearseJoin, BridgeFollowing, ComputerMIDIKeyboard,
-ScaleAwareDevices, GlobalScale, ExclusiveArm). **One screenshot remains** —
-without it the Lessons pane shows a stray filename. Save it as PNG **next to
-`LessonsEN.txt`** in
-`bundle/LA Laptop Orchestra/LA Laptop Orchestra Lessons/`:
+**All lesson images are in place (Aug 4):** the three generated key diagrams
+(ChordKeys / RootKeys / ScaleKeys) and seven captured screenshots (RehearseJoin,
+BridgeFollowing, ArmKeys, ComputerMIDIKeyboard, ScaleAwareDevices, GlobalScale,
+ExclusiveArm), each with a 2x copy in `Large/`.
 
-| File | What to capture (tight crop, ~500–650 px wide) |
-|---|---|
-| `ArmKeys.png` | The track headers with **Arm buttons visible and red** — Chord / Root / Scale armed, colors visible (Session view crop that includes the arm row) |
-
-Tips: Cmd+Shift+4 for a region screenshot; retina Macs capture at 2x — either
-resize to ~600 px wide with Preview, or put the full-res copy in the `Large/`
-subfolder under the same filename and the resized one next to the txt (that's
-Ableton's own convention: `Large/` holds the 2x versions).
-
-Then reopen the Lessons pane (View → Lessons) and confirm every page shows its
-images — no literal `*.png` text anywhere. Close Live.
+Reopen the Lessons pane (View → Lessons) and confirm every page shows its
+images — no literal `*.png` text or 🚫 icons anywhere. Close Live.
 
 ## Part C — Re-zip and standalone test
 
