@@ -169,7 +169,7 @@ selector; no reliance on `key`/`keyup`, Cmd-K, or a third-party full-keyboard
 device. What survives: the NoteSource dropdown, all the index math, note-off
 tracking, harmony re-pitch — everything except where the index comes from.
 
-## Design 4 (current plan): Stack (White) over incoming MIDI
+## Design 4 (shipped Aug 4): Stack (White) over incoming MIDI
 
 Port Tonalign's **Stack (White)** algorithm (`Tonalign/Source/PluginProcessor.cpp`,
 `getWhiteKeyStackedMidiNote`, lines ~399–465) into the bridge JS, applied to
@@ -215,9 +215,11 @@ a real keyboard, Root mode turns the row into octaves of the bass. "Right =
 higher" always holds regardless of NoteSource.
 
 Implementation note: Tonalign anchors white-key index 0 at MIDI 0; the Bridge
-should instead base the palette near C4 (A/middle-C = first palette note, per the
-Cmaj7 example above) so the CMK default octave and a hardware keyboard's middle
-register both land in a musical range untouched.
+instead anchors input MIDI 60 (the CMK's A key) to the first palette note, so
+the CMK default octave and a hardware keyboard's middle register both land in a
+musical range. (The Cmaj7 table above shows the original C4-based plan; live
+testing later moved every NoteSource into lower registers — see "Shipping day"
+below.)
 - **Layer selection**: the row dropdown dies (it only existed to serve raw key
   capture). Layers are chosen by **track arming** — see below.
 
@@ -262,6 +264,69 @@ key-mapped arm toggles, the multi-layer play the QWERTY rows promised comes back
 anyway — 1/2/3 for layers instead of four rows. That is the right deadline
 decision: preserve the musical concept, remove the fragile input technology.
 
+## Shipping day (Aug 4): implementation and the live-testing pass
+
+Design 4 was implemented in `firestore-bridge.js` on branch
+`feature/stack-white-notesource`, verified by 16 deterministic offline checks
+(`node test/stack-white-test.js` — a mock `max-api`/`https` harness that replays
+Firestore docs and MIDI events), then refined in one long morning of live
+play-testing in Live with the room running. Merged to `main` as `8409ad5`.
+What changed between the plan above and the shipped engine:
+
+**Root was silent, then became a bass instrument.** Chord Root's palette is one
+note, and the naive Stack wrap (octave per white key) pushed most of the CMK row
+outside MIDI 0–127 — blocked, so Root produced nothing at all. First fix: a
+whole row plays the same note, each row up/down shifts an octave. Then Root was
+redesigned entirely into **bass zones** via a 6-element palette `[r, r, r, f, f,
+f]`: **A S D** play the chord root, **F G H** play its "fifth", **J K L** the
+root an octave up, and the standard wrap continues the pattern in both
+directions with no special casing.
+
+**The fifth-selection rule**, hardened through examples: convert chord tones to
+intervals above the root mod 12, drop 0, pick the interval closest to 7;
+equidistant tie → the **higher** interval (root+8 over the root+6 tritone);
+root-only chord → the root itself. One example in the spec ([0,4,10] → 4)
+contradicted the stated tie rule; resolved explicitly as "always higher"
+([0,4,10] → 10), and locked in a test.
+
+**Everything dropped registers, by ear.** The plan's C4 anchoring was too high
+in the room. Live listening moved Chord's close-position palette to start near
+**MIDI 36** (Cmaj7 → [36, 40, 43, 47]) and Root's zones near **MIDI 24**. Each
+drop came from playing and saying "still an octave too high," not from theory.
+
+**Scale became a fixed C-anchored window.** Instead of stacking scale tones
+from the scale root, Scale places each pitch class at 48 + pc — a fixed MIDI
+48–59 window sorted ascending, anchored at C regardless of scale root. The
+payoff is **parsimony across scale changes**: shared tones stay on the same
+physical keys, so c_diatonic → g_diatonic moves exactly one key. An alternative
+"C, else C#, else B" anchor chain was analyzed: identical for 54 of 57 scales,
+and on the 3 scales containing neither C nor C# the two schemes just fail
+differently — the stateless window won on simplicity. **Chord stayed
+root-anchored** after considering the same window treatment: chords gain little
+key-stability from it and would lose root-on-first-key, which Root and Chord
+both depend on musically.
+
+**Documentation convention:** all pitch references switched to raw MIDI note
+numbers, because Live displays MIDI 60 as C3 (octave-naming conventions differ
+across vendors) and "C2" means different pitches to different readers.
+
+**Known input characteristic:** Live's Computer MIDI Keyboard is not
+velocity-sensitive — it sends a fixed velocity, stepped down/up with C/V. The
+Bridge preserves incoming velocity as-is, so hardware controllers get full
+dynamics and CMK players get the fixed value. No device-side velocity synthesis
+was added.
+
+Everything else survived intact from the plan: black keys blocked (offs
+dropped too), note-off tracking releases the exact generated pitch across
+harmony changes, held notes re-pitch on harmony or NoteSource change (offs
+first, velocities kept), duplicate outputs refcounted, CC123 flushes, non-note
+MIDI passes through, tempo/scale sync idempotent across instances.
+
+Remaining to ship: the frozen device, template `.als`, and bundle ZIP still
+predate this redesign — the freeze → template rebuild → re-zip → standalone
+test sequence is written up as `NATHAN_GUI_PROCEDURE.md`. Until it runs, the
+old frozen device in `bundle/` remains the working Aug 15 fallback.
+
 ## Decision log
 
 | Decision | Status |
@@ -280,23 +345,36 @@ decision: preserve the musical concept, remove the fragile input technology.
 | `hi` / `hid` / external helpers / Remote Scripts for key capture | **Rejected pre-Aug 15** — platform, permissions, packaging risk |
 | Tonalign-style pitch **correction** modes | **Deferred** — Stack (White) only for now |
 | Octave-transpose option | **Deferred** |
-| Stack (White) on incoming MIDI + NoteSource dropdown | **Current plan** |
+| Stack (White) on incoming MIDI + NoteSource dropdown | **Shipped Aug 4** — merged to `main` (`8409ad5`), 16 offline checks green |
 | Key-mapped 1/2/3 arm toggles for layer selection (Exclusive Arm off) | **Adopted** — tested Aug 4, works with CMK + A–L |
-| Branch-first rollout; frozen device is Aug 15 fallback | **Standing** |
+| Root as bass zones: A S D root (near MIDI 24) / F G H fifth / J K L root+12 | **Adopted** — via `[r,r,r,f,f,f]` palette, standard wrap |
+| Fifth rule: chord-tone interval closest to 7, tie → higher, root-only → root | **Adopted** — tritone avoided on ties; [0,4,10] → 10 locked in test |
+| Scale as fixed C-anchored MIDI 48–59 window (parsimonious scale changes) | **Adopted** — over C→C#→B anchor chain (identical for 54/57 scales; window is stateless) |
+| Chord window-anchored like Scale | **Rejected** — stays root-anchored close position near MIDI 36 |
+| Docs use raw MIDI note numbers | **Adopted** — Live shows MIDI 60 as C3; octave names are vendor-relative |
+| Device-side velocity synthesis for CMK (fixed-velocity input) | **Rejected** — velocity passed through; C/V steps + hardware controllers suffice |
+| Branch-first rollout; frozen device is Aug 15 fallback | **Standing** — code merged; old frozen bundle stays fallback until artifacts rebuilt |
 
 ## Open items
 
-- Amend or supersede #23 to reflect Stack (White) (gate-only spec was written for
-  Design 1; most failsafes and tests transfer directly)
+- **Rebuild the artifacts** (the only thing between the merged code and the
+  stage): freeze the device, rebuild the template `.als` (NoteSources, track
+  names/colors, 1/2/3 arm mappings, Chord armed), re-zip, standalone test —
+  step-by-step in `NATHAN_GUI_PROCEDURE.md`; full check is TESTING.md Phase 5
 - Empirically verify `key`/`keyup` focus behavior on Live 12 if anyone is tempted
   to revisit Design 3 (a minimal test .amxd can be generated headlessly — see
   CLAUDE.md for the unfrozen amxd format)
 - Test whether Cmd-M note mappings to a `live.button` are truly momentary in
   Live 12 (matters only if the pushcart button returns as a mouse affordance)
-- Template/Lesson updates: Computer MIDI Keyboard ON, Exclusive Arm OFF, 1/2/3
-  arm mappings saved in the Set, CHORD/ROOT/SCALE track names + colors, Chord
-  armed by default, CMK octave placement so white keys land in a sensible
-  register, Lesson line: "1 / 2 / 3 choose your layers. A–L plays them."
-- The shipped `LA Laptop Orchestra Bridge.amxd` is **frozen with no unfrozen
-  source** — implementation lands via an unfrozen build + manual refreeze in Max
-  (see CLAUDE.md refreeze workflow)
+
+Closed:
+
+- ~~Amend or supersede #23~~ — superseded by the shipped Stack (White) design;
+  its failsafes (note tracking, CC123, flush paths) carried over into the engine
+  and its tests
+- ~~Template/Lesson text updates~~ — `LessonsEN.txt` rewritten (1/2/3 layers,
+  M + A–L row, per-page Chord/Root/Scale descriptions); the Set rebuild itself
+  is part of the artifact step above
+- ~~Frozen device with no unfrozen source~~ — the repo-root unfrozen
+  `LA Laptop Orchestra Bridge.amxd` + `firestore-bridge.js` mirror are now the
+  canonical source; refreeze workflow lives in `NATHAN_GUI_PROCEDURE.md`
