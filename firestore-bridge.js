@@ -310,9 +310,9 @@ function fifthInterval(rootPc, chordPcs) {
  */
 function currentPalette() {
     switch (noteSource) {
-        case 1: {  // Root: A S D = root (near C2), F G H = fifth, J K L = root +12
+        case 1: {  // Root: A S D = root (near C1), F G H = fifth, J K L = root +12
             if (currentChordRoot === null) return null;
-            const r = placeNear48(currentChordRoot) - 12;
+            const r = placeNear48(currentChordRoot) - 24;
             const f = r + fifthInterval(currentChordRoot,
                 currentChordNotes ? currentChordNotes.map(n => n % 12) : null);
             return [r, r, r, f, f, f];
