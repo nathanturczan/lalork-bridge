@@ -173,21 +173,22 @@ Put an instrument (e.g., a piano) on the same track as the device. Play with Liv
 
 ### 5.1 No Input, No Sound
 - [ ] With the device connected and a chord present, silence until you play
-- [ ] Automated tests pass: `node test/stack-white-test.js` (14 checks)
+- [ ] Automated tests pass: `node test/stack-white-test.js` (15 checks)
 
 ### 5.2 Chord NoteSource Succession
 ```
 Room chord = Cmaj7 (chordInfo from Dashboard), NoteSource = Chord
 ```
 - [ ] Chord display shows the chord name
-- [ ] Playing white keys upward from C4 yields 60, 64, 67, 71, 72, 76, 79, 83, 84
-- [ ] C4 always plays the first palette note (the chord root near middle C)
+- [ ] Playing white keys upward from C4 yields 48, 52, 55, 59, 60, 64, 67, 71, 72
+- [ ] C4 always plays the first palette note (the chord root near C3)
 - [ ] Velocity follows how hard you play; releasing a key stops its note
 - [ ] Black keys produce nothing (pressed or released)
 
 ### 5.3 Root and Scale NoteSources
-- [ ] NoteSource = Root: every white key plays the chord root in successive octaves
-- [ ] NoteSource = Scale: white keys walk the current scale from its root
+- [ ] NoteSource = Root: every white key in the C4 row plays the chord root (near C3); shifting the CMK octave up/down moves it an octave — sound at every octave setting, never silence
+- [ ] NoteSource = Scale: white keys from C4 walk the scale's tones sorted in a fixed C3–B3 window (anchored at C, not the scale root)
+- [ ] Change the scale by one tone (e.g., C diatonic → G diatonic): only the changed tone's key re-pitches; keys for shared tones keep their notes
 - [ ] Switching NoteSource while holding notes re-pitches them (no stuck notes, no double attacks on unchanged pitches)
 
 ### 5.4 Harmony Change While Holding

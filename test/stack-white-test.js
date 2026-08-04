@@ -91,7 +91,7 @@ function ok(name, fn) {
 // ---------------------------------------------------------------------------
 
 async function main() {
-    // Cmaj7: root 0, voicing pcs {0,4,7,11} -> palette [60,64,67,71]
+    // Cmaj7: root 0, voicing pcs {0,4,7,11} -> palette [48,52,55,59]
     mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'cmaj7-test', root: 0, voicing: [48, 52, 67, 71] });
 
     require('../code/firestore-bridge.js');
@@ -106,19 +106,19 @@ async function main() {
         assert.deepStrictEqual(midiEvents(), []);
     });
 
-    ok('Chord palette succession from C4 (spec: 60,64,67,71,72,76,79,83,84)', () => {
+    ok('Chord palette succession from C4 (48,52,55,59,60,64,67,71,72)', () => {
         clearMidi();
         const whiteKeys = [60, 62, 64, 65, 67, 69, 71, 72, 74]; // C4..D5, A..; on CMK
         whiteKeys.forEach((p, i) => handlers.noteIn(p, 100 - i, 1));
         assert.deepStrictEqual(midiEvents(), [
-            [60, 100], [64, 99], [67, 98], [71, 97],
-            [72, 96], [76, 95], [79, 94], [83, 93], [84, 92]
+            [48, 100], [52, 99], [55, 98], [59, 97],
+            [60, 96], [64, 95], [67, 94], [71, 93], [72, 92]
         ]);
         clearMidi();
         whiteKeys.forEach(p => handlers.noteIn(p, 0, 1));  // vel-0 note-on = note-off
         assert.deepStrictEqual(midiEvents(), [
-            [60, 0], [64, 0], [67, 0], [71, 0],
-            [72, 0], [76, 0], [79, 0], [83, 0], [84, 0]
+            [48, 0], [52, 0], [55, 0], [59, 0],
+            [60, 0], [64, 0], [67, 0], [71, 0], [72, 0]
         ]);
     });
 
@@ -129,46 +129,72 @@ async function main() {
         assert.deepStrictEqual(midiEvents(), []);
     });
 
-    ok('Root palette = successive octaves of chord root', () => {
+    ok('Root: whole white-key row plays the root; rows shift octaves', () => {
         clearMidi();
         handlers.mode(1);
-        [60, 62, 64].forEach(p => handlers.noteIn(p, 90, 1));
-        assert.deepStrictEqual(midiEvents(), [[60, 90], [72, 90], [84, 90]]);
+        [60, 62, 64].forEach(p => handlers.noteIn(p, 90, 1));  // same row -> same note (refcounted)
+        assert.deepStrictEqual(midiEvents(), [[48, 90]]);
+        handlers.noteIn(72, 90, 1);   // next row up -> +12
+        handlers.noteIn(48, 90, 1);   // row below C4 -> -12
+        assert.deepStrictEqual(midiEvents(), [[48, 90], [60, 90], [36, 90]]);
         clearMidi();
-        [60, 62, 64].forEach(p => handlers.noteIn(p, 0, 1));
-        assert.deepStrictEqual(midiEvents(), [[60, 0], [72, 0], [84, 0]]);
+        [60, 62, 64, 72, 48].forEach(p => handlers.noteIn(p, 0, 1));
+        assert.deepStrictEqual(midiEvents(), [[48, 0], [60, 0], [36, 0]]);
     });
 
-    ok('Scale palette = scale degrees from scale root (C diatonic = identity on white keys)', () => {
+    ok('Scale palette = fixed C window (C diatonic -> identity an octave down)', () => {
         clearMidi();
         handlers.mode(2);
         [60, 62, 64, 65, 67, 69, 71, 72].forEach(p => handlers.noteIn(p, 80, 1));
-        assert.deepStrictEqual(midiEvents().map(e => e[0]), [60, 62, 64, 65, 67, 69, 71, 72]);
+        assert.deepStrictEqual(midiEvents().map(e => e[0]), [48, 50, 52, 53, 55, 57, 59, 60]);
         clearMidi();
         [60, 62, 64, 65, 67, 69, 71, 72].forEach(p => handlers.noteIn(p, 0, 1));
         assert.strictEqual(midiEvents().length, 8);
         handlers.mode(0);
     });
 
+    // scale change parsimony: shared pitch classes stay on the same keys
+    {
+        clearMidi();
+        handlers.mode(2);
+        handlers.noteIn(60, 80, 1);  // C key -> 48
+        handlers.noteIn(65, 80, 1);  // F key -> 53
+        // c_diatonic -> g_diatonic: only F -> F# changes
+        mockDoc = firestoreDoc({ bpm: 120, scaleData: 'g_diatonic', chordData: 'cmaj7-test', root: 0, voicing: [48, 52, 67, 71] });
+        handlers.poll();
+        await sleep(50);
+        const ev = midiEvents();
+        // the C key survives without retrigger; only the F key re-pitches 53 -> 54
+        assert.deepStrictEqual(ev, [[48, 80], [53, 80], [53, 0], [54, 80]],
+            `parsimony events wrong: ${JSON.stringify(ev)}`);
+        clearMidi();
+        handlers.noteIn(60, 0, 1);
+        handlers.noteIn(65, 0, 1);
+        assert.deepStrictEqual(midiEvents(), [[48, 0], [54, 0]]);
+        handlers.mode(0);
+        passed++;
+        console.log('  ok - scale change re-pitches only the changed scale tone (C window parsimony)');
+    }
+
     ok('retriggered input without note-off does not stick', () => {
         clearMidi();
         handlers.noteIn(60, 100, 1);
         handlers.noteIn(60, 110, 1);
-        assert.deepStrictEqual(midiEvents(), [[60, 100], [60, 0], [60, 110]]);
+        assert.deepStrictEqual(midiEvents(), [[48, 100], [48, 0], [48, 110]]);
         clearMidi();
         handlers.noteIn(60, 0, 1);
-        assert.deepStrictEqual(midiEvents(), [[60, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[48, 0]]);
     });
 
     ok('refcount: same output held on two channels releases once', () => {
         clearMidi();
         handlers.noteIn(60, 100, 1);
         handlers.noteIn(60, 100, 2);   // same output, no duplicate note-on
-        assert.deepStrictEqual(midiEvents(), [[60, 100]]);
+        assert.deepStrictEqual(midiEvents(), [[48, 100]]);
         handlers.noteIn(60, 0, 1);     // ch2 still holds it - no note-off yet
-        assert.deepStrictEqual(midiEvents(), [[60, 100]]);
+        assert.deepStrictEqual(midiEvents(), [[48, 100]]);
         handlers.noteIn(60, 0, 2);
-        assert.deepStrictEqual(midiEvents(), [[60, 100], [60, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[48, 100], [48, 0]]);
     });
 
     console.log('held-note changes:');
@@ -176,44 +202,44 @@ async function main() {
     // harmony change re-pitches held notes (off before on, velocity kept)
     {
         clearMidi();
-        handlers.noteIn(60, 100, 1);   // Cmaj7 chord palette -> 60
-        handlers.noteIn(62, 90, 1);    //                     -> 64
-        // Dm7: root 2, pcs {2,5,9,0} -> palette [62,65,69,72]
+        handlers.noteIn(60, 100, 1);   // Cmaj7 chord palette -> 48
+        handlers.noteIn(62, 90, 1);    //                     -> 52
+        // Dm7: root 2, pcs {2,5,9,0} -> palette [50,53,57,60]
         mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'dm7-test', root: 2, voicing: [50, 53, 57, 60] });
         handlers.poll();
         await sleep(50);
         const ev = midiEvents();
-        assert.deepStrictEqual(ev.slice(0, 2), [[60, 100], [64, 90]]);
-        assert.deepStrictEqual(ev.slice(2), [[60, 0], [64, 0], [62, 100], [65, 90]],
+        assert.deepStrictEqual(ev.slice(0, 2), [[48, 100], [52, 90]]);
+        assert.deepStrictEqual(ev.slice(2), [[48, 0], [52, 0], [50, 100], [53, 90]],
             `remap events wrong: ${JSON.stringify(ev)}`);
         clearMidi();
         // note-offs stop the NEW pitches
         handlers.noteIn(60, 0, 1);
         handlers.noteIn(62, 0, 1);
-        assert.deepStrictEqual(midiEvents(), [[62, 0], [65, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[50, 0], [53, 0]]);
         passed++;
         console.log('  ok - harmony change re-pitches held notes (off before on, velocity kept)');
     }
 
     ok('NoteSource change re-pitches held notes', () => {
         clearMidi();
-        handlers.noteIn(62, 100, 1);   // Dm7 chord palette -> 65
-        handlers.mode(1);              // Root: palette [62] -> input 62 = second octave 74
-        assert.deepStrictEqual(midiEvents(), [[65, 100], [65, 0], [74, 100]]);
+        handlers.noteIn(62, 100, 1);   // Dm7 chord palette -> 53
+        handlers.mode(1);              // Root: palette [50] -> input 62 (same row) = 50
+        assert.deepStrictEqual(midiEvents(), [[53, 100], [53, 0], [50, 100]]);
         clearMidi();
         handlers.noteIn(62, 0, 1);
-        assert.deepStrictEqual(midiEvents(), [[74, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[50, 0]]);
         handlers.mode(0);
     });
 
     ok('unchanged outputs survive remap without retrigger', () => {
         clearMidi();
-        handlers.noteIn(60, 100, 1);   // Dm7 chord -> 62
-        handlers.mode(1);              // Root palette [62]: input 60 -> 62 (unchanged)
-        assert.deepStrictEqual(midiEvents(), [[62, 100]]);  // no off/on pair from the remap
+        handlers.noteIn(60, 100, 1);   // Dm7 chord -> 50
+        handlers.mode(1);              // Root palette [50]: input 60 -> 50 (unchanged)
+        assert.deepStrictEqual(midiEvents(), [[50, 100]]);  // no off/on pair from the remap
         clearMidi();
         handlers.noteIn(60, 0, 1);
-        assert.deepStrictEqual(midiEvents(), [[62, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[50, 0]]);
         handlers.mode(0);
     });
 
@@ -225,7 +251,7 @@ async function main() {
         handlers.noteIn(62, 90, 1);
         handlers.ccIn(0, 123);
         const ev = midiEvents();
-        assert.deepStrictEqual(ev.slice(2).sort((a, b) => a[0] - b[0]), [[62, 0], [65, 0]]);
+        assert.deepStrictEqual(ev.slice(2).sort((a, b) => a[0] - b[0]), [[50, 0], [53, 0]]);
         clearMidi();
         handlers.noteIn(60, 0, 1);     // bookkeeping cleared - nothing to release
         assert.deepStrictEqual(midiEvents(), []);
@@ -235,7 +261,7 @@ async function main() {
         clearMidi();
         handlers.noteIn(60, 100, 1);
         handlers.flush();
-        assert.deepStrictEqual(midiEvents(), [[62, 100], [62, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[50, 100], [50, 0]]);
     });
 
     ok('disconnect releases held notes (no stuck notes)', () => {
@@ -243,7 +269,7 @@ async function main() {
         handlers.noteIn(60, 100, 1);
         handlers.disconnect();
         const ev = midiEvents();
-        assert.deepStrictEqual(ev, [[62, 100], [62, 0]]);
+        assert.deepStrictEqual(ev, [[50, 100], [50, 0]]);
     });
 
     ok('after disconnect, input generates nothing (no palette)', () => {

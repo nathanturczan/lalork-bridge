@@ -48,15 +48,15 @@ Firestore room doc (public read)
 
 ## Playing (Stack White)
 
-The mapping is Tonalign's **Stack White** algorithm: white keys select successive notes of a harmony palette, wrapping up an octave when the palette is exhausted; black keys are blocked (their note-ons and note-offs are dropped). C4 always plays the first palette note. Example — Cmaj7 palette `[60, 64, 67, 71]`, playing white keys upward from C4 yields `60, 64, 67, 71, 72, 76, 79, 83, 84`.
+The mapping is Tonalign's **Stack White** algorithm: white keys select successive notes of a harmony palette, wrapping up an octave when the palette is exhausted; black keys are blocked (their note-ons and note-offs are dropped). C4 always plays the first palette note. Palettes are based near C3 so parts sit in a playable register. Example — Cmaj7 palette `[48, 52, 55, 59]`, playing white keys upward from C4 yields `48, 52, 55, 59, 60, 64, 67, 71, 72`.
 
 A **NoteSource** dropdown selects the palette, so you can put one instance on each of several tracks:
 
 | NoteSource | Palette |
 |------------|---------|
-| **Chord** (default) | The current chord's pitch classes, ascending close position from the chord root (normalized near middle C) |
-| **Root** | Successive octaves of the chord root |
-| **Scale** | The current scale's degrees, ascending from the scale root |
+| **Chord** (default) | The current chord's pitch classes, ascending close position from the chord root (placed near C3) |
+| **Root** | The chord root alone: every white key in a row plays it, and each row up or down shifts an octave |
+| **Scale** | The current scale's tones placed in a fixed C3–B3 window, sorted ascending — anchored at C, **not** the scale root, so a parsimonious scale change moves as few keys as possible (shared tones stay on the same keys) |
 
 Behavior details:
 - Velocity is preserved; original incoming notes are suppressed; non-note MIDI (CC, bend, aftertouch) passes through

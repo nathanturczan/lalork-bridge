@@ -43,7 +43,6 @@ function setStatus(s) {
 let currentChordNotes = null;   // voicing of the current chord (pcs feed the Chord palette)
 let currentChordRoot = null;    // pitch class (0-11) of the current chord root
 let currentScalePcs = null;     // pitch classes (0-11) of the current scale
-let currentScaleRoot = null;    // pitch class (0-11) of the current scale root
 
 // NoteSource: which palette this instance plays (per-device dropdown)
 const NOTE_SOURCES = ['Chord', 'Root', 'Scale'];
@@ -249,15 +248,15 @@ function whiteKeyIndex(midiNote) {
 
 const WK_C4 = whiteKeyIndex(60);  // input C4 = palette position 0
 
-// Place a pitch class in the octave nearest C4 (result in 54-65)
-function placeNear60(pc) {
+// Place a pitch class in the octave nearest C3 (result in 42-53)
+function placeNear48(pc) {
     const p = ((pc % 12) + 12) % 12;
-    return p <= 5 ? 60 + p : 48 + p;
+    return p <= 5 ? 48 + p : 36 + p;
 }
 
 /**
  * Ascending close-position palette from pitch classes, starting at the root
- * placed nearest C4. Cmaj7 pcs {0,4,7,11} root 0 -> [60, 64, 67, 71].
+ * placed nearest C3. Cmaj7 pcs {0,4,7,11} root 0 -> [48, 52, 55, 59].
  */
 function paletteFromPcs(pcs, rootPc) {
     if (!pcs || pcs.length === 0) return null;
@@ -265,7 +264,7 @@ function paletteFromPcs(pcs, rootPc) {
     let root = (rootPc === null || rootPc === undefined) ? uniq[0] : ((rootPc % 12) + 12) % 12;
     if (uniq.indexOf(root) === -1) root = uniq[0];
     const start = uniq.indexOf(root);
-    const palette = [placeNear60(root)];
+    const palette = [placeNear48(root)];
     let prevPc = root;
     for (let i = 1; i < uniq.length; i++) {
         const pc = uniq[(start + i) % uniq.length];
@@ -276,15 +275,28 @@ function paletteFromPcs(pcs, rootPc) {
 }
 
 /**
+ * Scale palette: the scale's pitch classes placed in a fixed C3-B3 window,
+ * sorted ascending. Anchored at C (NOT the scale root) so parsimonious scale
+ * changes in the 57-network move as few keys as possible: pitch classes
+ * shared between consecutive scales usually stay on the same keys; only the
+ * changed scale tones move.
+ */
+function paletteFromWindow(pcs) {
+    if (!pcs || pcs.length === 0) return null;
+    const uniq = [...new Set(pcs.map(pc => ((pc % 12) + 12) % 12))].sort((a, b) => a - b);
+    return uniq.map(pc => 48 + pc);
+}
+
+/**
  * The palette for this device's NoteSource, from current harmony state.
  * null = nothing playable (no harmony yet, or display-only chord).
  */
 function currentPalette() {
     switch (noteSource) {
-        case 1:  // Root: single note -> successive octaves of the chord root
-            return currentChordRoot !== null ? [placeNear60(currentChordRoot)] : null;
-        case 2:  // Scale: scale degrees ascending from the scale root
-            return currentScalePcs ? paletteFromPcs(currentScalePcs, currentScaleRoot) : null;
+        case 1:  // Root: single note -> whole white-key row plays it
+            return currentChordRoot !== null ? [placeNear48(currentChordRoot)] : null;
+        case 2:  // Scale: scale tones in a fixed C octave window, sorted
+            return currentScalePcs ? paletteFromWindow(currentScalePcs) : null;
         default: // Chord: chord pitch classes, close position from harmonic root
             return currentChordNotes
                 ? paletteFromPcs(currentChordNotes.map(n => n % 12), currentChordRoot)
@@ -304,9 +316,16 @@ function mapInputToOutput(inputPitch) {
     if (!palette) return -1;
     const rel = wk - WK_C4;
     const len = palette.length;
-    const degree = ((rel % len) + len) % len;
-    const cycle = Math.floor(rel / len);
-    const out = palette[degree] + 12 * cycle;
+    let out;
+    if (len === 1) {
+        // Single-note palette (Root): every white key in a row plays the same
+        // note; each row up/down shifts an octave. (An octave-per-key mapping
+        // would leave most of the keyboard outside MIDI range.)
+        out = palette[0] + 12 * Math.floor(rel / 7);
+    } else {
+        const degree = ((rel % len) + len) % len;
+        out = palette[degree] + 12 * Math.floor(rel / len);
+    }
     return (out >= 0 && out <= 127) ? out : -1;
 }
 
@@ -639,7 +658,6 @@ async function poll() {
                 currentScalePcs = intervals
                     ? intervals.map(iv => (parsed.root + iv) % 12).sort((a, b) => a - b)
                     : null;
-                currentScaleRoot = parsed.root;
                 remapActiveNotes();  // re-pitch held notes against the new scale
             }
         }
@@ -700,7 +718,6 @@ function stopPolling() {
     currentChordNotes = null;
     currentChordRoot = null;
     currentScalePcs = null;
-    currentScaleRoot = null;
     lastBpm = null;
     lastScaleData = null;
     lastChordData = null;
