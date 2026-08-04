@@ -65,18 +65,17 @@ root (already synced from the canonical `code/firestore-bridge.js`).
 
 ## Part B2 — Capture the Lesson screenshots
 
-The Lesson text already references these images. Three key-diagram PNGs
-(ChordKeys / RootKeys / ScaleKeys) are already generated and in place; **four
-screenshots must be captured by hand** or the Lessons pane will show stray
-filenames. Save them as PNG **next to `LessonsEN.txt`** in
+The Lesson text already references these images. In place (Aug 4): the three
+generated key diagrams (ChordKeys / RootKeys / ScaleKeys) and six captured
+screenshots (RehearseJoin, BridgeFollowing, ComputerMIDIKeyboard,
+ScaleAwareDevices, GlobalScale, ExclusiveArm). **One screenshot remains** —
+without it the Lessons pane shows a stray filename. Save it as PNG **next to
+`LessonsEN.txt`** in
 `bundle/LA Laptop Orchestra/LA Laptop Orchestra Lessons/`:
 
 | File | What to capture (tight crop, ~500–650 px wide) |
 |---|---|
-| `BridgeFollowing.png` | The Bridge device with the green `● FOLLOWING LALORK` banner (crop to the device) |
-| `ArmKeys.png` | The three track headers — names `1 Chord` / `2 Root` / `3 Scale`, colors visible, Arm buttons red |
-| `ComputerMIDIKeyboard.png` | The Computer MIDI Keyboard switch in Live's upper-right control bar |
-| `RehearseJoin.png` | rehearse.laptoporchestra.com showing a rehearsal code (once the site is live) |
+| `ArmKeys.png` | The track headers with **Arm buttons visible and red** — Chord / Root / Scale armed, colors visible (Session view crop that includes the arm row) |
 
 Tips: Cmd+Shift+4 for a region screenshot; retina Macs capture at 2x — either
 resize to ~600 px wide with Preview, or put the full-res copy in the `Large/`
