@@ -154,12 +154,20 @@ async function main() {
         handlers.noteIn(65, 90, 1);   // F key -> "fifth" = root(31) + 6 = 37
         assert.deepStrictEqual(midiEvents(), [[37, 90]]);
         handlers.noteIn(65, 0, 1);
+        clearMidi();
+        // equidistant tie {b5, #5}: pick the HIGHER (root+8), not the tritone
+        mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'tie-test', root: 0, voicing: [48, 54, 56] });
+        handlers.poll();
+        await sleep(50);
+        handlers.noteIn(65, 90, 1);   // F key -> root(36) + 8 = 44
+        assert.deepStrictEqual(midiEvents(), [[44, 90]]);
+        handlers.noteIn(65, 0, 1);
         // restore Cmaj7 for the following tests
         mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'cmaj7-test', root: 0, voicing: [48, 52, 67, 71] });
         handlers.poll();
         await sleep(50);
         passed++;
-        console.log('  ok - Root fifth falls back to nearest chord tone (m7b5 -> b5)');
+        console.log('  ok - Root fifth fallback: m7b5 -> b5; equidistant tie -> higher tone');
     }
 
     ok('Scale palette = fixed C window (C diatonic -> identity an octave down)', () => {

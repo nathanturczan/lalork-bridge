@@ -289,19 +289,19 @@ function paletteFromWindow(pcs) {
 
 /**
  * Root-mode fifth: interval above the root of the chord tone nearest a
- * perfect fifth (7 semitones); ties pick the lower tone. 7 if the chord
- * has no other tones to choose from.
+ * perfect fifth (7 semitones). Ties pick the higher tone (root+8 over the
+ * root+6 tritone). 0 (the root itself) if the chord has no other tones.
  */
 function fifthInterval(rootPc, chordPcs) {
-    if (!chordPcs || chordPcs.length === 0) return 7;
+    if (!chordPcs || chordPcs.length === 0) return 0;
     let best = null;
     for (const pc of new Set(chordPcs.map(p => ((p % 12) + 12) % 12))) {
         const iv = ((pc - rootPc) + 12) % 12;
         if (iv === 0) continue;
         if (best === null || Math.abs(iv - 7) < Math.abs(best - 7) ||
-            (Math.abs(iv - 7) === Math.abs(best - 7) && iv < best)) best = iv;
+            (Math.abs(iv - 7) === Math.abs(best - 7) && iv > best)) best = iv;
     }
-    return best === null ? 7 : best;
+    return best === null ? 0 : best;
 }
 
 /**
