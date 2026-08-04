@@ -167,56 +167,58 @@ Set scaleData to same value it already is
 
 ---
 
-## Phase 5: Chord Display + MIDI Output
+## Phase 5: Chord Display + Playing (Stack White)
 
-Put an instrument (e.g., a piano) on the same track as the device.
+Put an instrument (e.g., a piano) on the same track as the device. Play with Live's Computer MIDI Keyboard (press `M`, track armed) or a hardware keyboard.
 
-### 5.1 Chord Update (DB voicing)
-```
-Set room chordData: "d_m7♭5-26"  (a key in the bundled chord DB)
-```
-- [ ] Chord display shows "d_m7♭5-26"
-- [ ] Max console shows: `Chord: d_m7♭5-26 → notes [50 60 65 68 74]`
-- [ ] Instrument on the track sounds the chord (sustained)
+### 5.1 No Input, No Sound
+- [ ] With the device connected and a chord present, silence until you play
+- [ ] Automated tests pass: `node test/stack-white-test.js` (16 checks)
 
-### 5.2 Chord Change
+### 5.2 Chord NoteSource Succession
 ```
-Change room chordData to another DB key
+Room chord = Cmaj7 (chordInfo from Dashboard), NoteSource = Chord
 ```
-- [ ] Old notes are released, new chord sounds (no stuck notes)
-- [ ] Chord display updates
+- [ ] Chord display shows the chord name
+- [ ] Playing white keys upward from input MIDI 60 yields MIDI 36, 40, 43, 47, 48, 52, 55, 59, 60
+- [ ] Input 60 always plays the first palette note (the chord root near MIDI 36)
+- [ ] Velocity follows how hard you play; releasing a key stops its note
+- [ ] Black keys produce nothing (pressed or released)
 
-### 5.3 chordInfo Voicing (Harmony Payload v2)
-```
-Change chord from a current Dashboard (writes chordInfo.voicing)
-```
-- [ ] Notes match the Dashboard's exact voicing
-- [ ] Works for custom chords not in the bundled DB
+### 5.3 Root and Scale NoteSources
+- [ ] NoteSource = Root: A S D play the chord root near MIDI 24, F G H the fifth (a chord without a perfect fifth uses the nearest chord tone, e.g. m7♭5 → ♭5; ties pick the higher), J K L the root an octave up; sound at every CMK octave setting, never silence
+- [ ] NoteSource = Scale: white keys from input 60 walk the scale's tones sorted in a fixed MIDI 48–59 window (anchored at C, not the scale root)
+- [ ] Change the scale by one tone (e.g., C diatonic → G diatonic): only the changed tone's key re-pitches; keys for shared tones keep their notes
+- [ ] Switching NoteSource while holding notes re-pitches them (no stuck notes, no double attacks on unchanged pitches)
 
-### 5.4 Unknown Chord (display only)
+### 5.4 Harmony Change While Holding
 ```
-Set room chordData: "Cmaj7" (not a DB key, no chordInfo)
+Hold notes, change the chord from the Dashboard
+```
+- [ ] Held notes re-pitch to the new harmony within ~1s (note-offs first, velocity kept)
+- [ ] Releasing keys afterward stops the new pitches (no stuck notes)
+
+### 5.5 Unknown Chord (display only)
+```
+Set room chordData: "Cmaj7" as plain string (not a DB key, no chordInfo)
 ```
 - [ ] Chord display shows "Cmaj7"
-- [ ] Console: `Chord: Cmaj7 (no voicing found, display only)`
-- [ ] Previously held notes are released, no new notes
-
-### 5.5 Play Chords Toggle
-- [ ] Toggle off → all notes released immediately
-- [ ] Toggle on → current chord resumes
-- [ ] Toggle state is a Live parameter (automatable, saved with the set)
+- [ ] Playing produces no notes; previously held notes were released
 
 ### 5.6 Stop/Disconnect Releases Notes
-- [ ] While a chord is sounding, click Stop → no stuck notes
+- [ ] While holding notes, click Stop → no stuck notes
+- [ ] After Stop, playing produces nothing (no palette)
 
-### 5.7 MIDI Passthrough
-- [ ] Play MIDI into the track from a keyboard/clip → it passes through the device
+### 5.7 Original Notes Suppressed, Non-Note MIDI Passes
+- [ ] The raw incoming pitches never reach the instrument — only remapped notes sound
+- [ ] Pitch bend / CC (e.g., mod wheel) pass through to the instrument
+- [ ] CC 123 (All Notes Off) releases all generated notes
 
 ### 5.8 Missing Chord
 ```
 Room has no chordData field
 ```
-- [ ] Chord display stays empty (no crash, no notes)
+- [ ] Chord display stays empty (no crash; playing produces no notes)
 
 ---
 

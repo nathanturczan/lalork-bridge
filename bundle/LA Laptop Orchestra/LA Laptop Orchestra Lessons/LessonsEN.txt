@@ -13,53 +13,61 @@ Copy your rehearsal code, paste it into the *Rehearsal* tab, and click *Join*.
 
 Open $Link enter.laptoporchestra.com <https://enter.laptoporchestra.com>. Switch to the *Performance* tab—it auto-connects to the live ensemble.
 
-All devices in this Set share one connection. Each track has its own Output setting.
+All devices in this Set share one connection.
+
+*Playing*
+
+Press *1*, *2*, and *3* to turn the Chord, Root, and Scale layers on or off. A red Arm button means the layer is on.
+
+Use Live's Computer MIDI Keyboard to play the armed layers. Press *M* to enable it, then play the *A–L* row of your keyboard. Only the white keys sound, and every note you play is always in harmony—the Bridge re-pitches your keys to the current chord and scale.
+
+If arming one layer turns another off, disable *Exclusive Arm* in Live's Preferences (Record, Warp & Launch).
 
 *Tracks*
--> $Link Chord Notes <GotoPage:Chord Notes>
--> $Link Chord Root <GotoPage:Chord Root>
--> $Link Scale Notes <GotoPage:Scale Notes>
+-> $Link Chord <GotoPage:Chord>
+-> $Link Root <GotoPage:Root>
+-> $Link Scale <GotoPage:Scale>
 
 Harmony powered by $Link Scale Navigator <https://scalenavigator.com>.
 
 
 
 $Comment --------------------------------------------------------------------------------
-$Page Chord Notes
-$TargetName Chord Notes
+$Page Chord
+$TargetName Chord
 
-*Chord Notes*
+*Chord*
 
-Outputs the notes of the current chord. Use it for pads, arpeggios, and other polyphonic parts.
+Your white keys step through the notes of the current chord, from its root upward. Use it for pads, arpeggios, and other polyphonic parts.
 
-Set the *Output* dropdown to *Chord Voicing*.
-
-$Link Back <GotoPage:Home>
-
-
-
-$Comment --------------------------------------------------------------------------------
-$Page Chord Root
-$TargetName Chord Root
-
-*Chord Root*
-
-Outputs the root of the current chord. Use it for bass lines and monophonic parts.
-
-Set the *Output* dropdown to *Chord Root*.
+The device's *NoteSource* is set to *Chord*.
 
 $Link Back <GotoPage:Home>
 
 
 
 $Comment --------------------------------------------------------------------------------
-$Page Scale Notes
-$TargetName Scale Notes
+$Page Root
+$TargetName Root
 
-*Scale Notes*
+*Root*
 
-Outputs notes from the current scale. Use it for melodies and improvisation beyond the current chord.
+*A*, *S*, and *D* play the root of the current chord. *F*, *G*, and *H* play its fifth, and *J*, *K*, and *L* the root an octave up. Use it for bass lines.
 
-Set the *Output* dropdown to *Scale Notes*.
+The device's *NoteSource* is set to *Root*.
+
+$Link Back <GotoPage:Home>
+
+
+
+$Comment --------------------------------------------------------------------------------
+$Page Scale
+$TargetName Scale
+
+*Scale*
+
+Your white keys walk the current scale, step by step. When the scale changes, most keys keep their notes—only the changed tones move. Use it for melodies and improvisation beyond the current chord.
+
+The device's *NoteSource* is set to *Scale*.
 
 $Link Back <GotoPage:Home>

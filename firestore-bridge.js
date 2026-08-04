@@ -29,6 +29,9 @@ let lastChordData = null;
 let lastStatus = null;
 let pollTimer = null;
 
+// Connection generation: incremented on every connect/disconnect to invalidate stale async callbacks
+let connectionGeneration = 0;
+
 // Emit status to the UI banner only when it changes (poll runs every 500ms)
 function setStatus(s) {
     if (s === lastStatus) return;
@@ -36,20 +39,19 @@ function setStatus(s) {
     maxApi.outlet('status', s);
 }
 
-// MIDI output state
-let playChords = true;          // toggled from Max UI (gates all note output)
-let heldNotes = [];             // notes currently sounding (need note-offs)
-let currentChordNotes = null;   // voicing of the current chord
+// Harmony state (palette sources for the Stack White instrument)
+let currentChordNotes = null;   // voicing of the current chord (pcs feed the Chord palette)
 let currentChordRoot = null;    // pitch class (0-11) of the current chord root
 let currentScalePcs = null;     // pitch classes (0-11) of the current scale
-const NOTE_VELOCITY = 96;
 
-// Output mode: what this instance plays into its track.
-// Matches the Dashboard's MIDI output types.
-const OUTPUT_MODES = ['Chord Voicing', 'Chord Root', 'Scale Notes'];
-let outputMode = 0;             // 0 = chord voicing, 1 = chord root, 2 = scale pitch classes
-const CHORD_ROOT_OFFSET = 24;   // chord root pc normalized two octaves up (MIDI 24-35)
-const SCALE_PC_OFFSET = 36;     // scale pcs normalized three octaves up (MIDI 36-47)
+// NoteSource: which palette this instance plays (per-device dropdown)
+const NOTE_SOURCES = ['Chord', 'Root', 'Scale'];
+let noteSource = 0;             // 0 = chord, 1 = root, 2 = scale
+
+// Active note bookkeeping (Tonalign NoteMapping semantics):
+// note-offs are matched by (inputPitch, channel) and retargeted to the
+// outputPitch that was actually sounded, even if harmony changed since.
+let activeNotes = [];           // [{ inputPitch, outputPitch, velocity, channel }]
 
 // ---------------------------------------------------------------------------
 // Scale Navigator → Ableton Scale Mapping
@@ -219,35 +221,201 @@ function resolveChordRoot(doc, chordData) {
     return null;
 }
 
-function sendNoteOffs() {
-    for (const note of heldNotes) {
-        maxApi.outlet('midiNote', note, 0);
-    }
-    heldNotes = [];
+// ---------------------------------------------------------------------------
+// Stack White MIDI Instrument
+//
+// Ported from Tonalign (Source/PluginProcessor.cpp):
+//   - getWhiteKeyIndex        (:399-427)  white-key indexing, black keys -> -1
+//   - getWhiteKeyStackedMidiNote (:429-465)  degree = index % len, +12/cycle
+//   - note bookkeeping        (:245-278)  NoteMapping{original,remapped,ch,vel}
+//   - checkUpdateNoteMappings (:287-299)  remap held notes on harmony change
+//                                         (Interrupt behavior, always on here)
+//
+// Documented deviation: Tonalign anchors white-key index 0 at MIDI 0. The
+// Bridge re-anchors so input C4 (MIDI 60) always plays palette[0], and the
+// palette itself is voiced near C4 (spec: "normalize first note around 60").
+// ---------------------------------------------------------------------------
+
+// Tonalign pcToWhiteKey: white keys C D E F G A B -> 0..6, black keys -> -1
+const PC_TO_WHITE_KEY = [0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6];
+
+// Total white-key index (octave * 7 + position), or -1 for black keys
+function whiteKeyIndex(midiNote) {
+    const wk = PC_TO_WHITE_KEY[((midiNote % 12) + 12) % 12];
+    if (wk < 0) return -1;  // black key - blocked (Tonalign behavior)
+    return Math.floor(midiNote / 12) * 7 + wk;
+}
+
+const WK_C4 = whiteKeyIndex(60);  // input C4 = palette position 0
+
+// Place a pitch class in the octave nearest C3 (result in 42-53)
+function placeNear48(pc) {
+    const p = ((pc % 12) + 12) % 12;
+    return p <= 5 ? 48 + p : 36 + p;
 }
 
 /**
- * Notes to sound for the current output mode.
+ * Ascending close-position palette from pitch classes, starting at the root
+ * placed nearest C2. Cmaj7 pcs {0,4,7,11} root 0 -> [36, 40, 43, 47].
  */
-function currentOutputNotes() {
-    switch (outputMode) {
-        case 1:  // chord root, normalized two octaves up
-            return currentChordRoot !== null ? [currentChordRoot + CHORD_ROOT_OFFSET] : null;
-        case 2:  // scale pitch classes, normalized three octaves up
-            return currentScalePcs ? currentScalePcs.map(pc => pc + SCALE_PC_OFFSET) : null;
-        default: // chord voicing (absolute MIDI)
-            return currentChordNotes;
+function paletteFromPcs(pcs, rootPc) {
+    if (!pcs || pcs.length === 0) return null;
+    const uniq = [...new Set(pcs.map(pc => ((pc % 12) + 12) % 12))].sort((a, b) => a - b);
+    let root = (rootPc === null || rootPc === undefined) ? uniq[0] : ((rootPc % 12) + 12) % 12;
+    if (uniq.indexOf(root) === -1) root = uniq[0];
+    const start = uniq.indexOf(root);
+    const palette = [placeNear48(root) - 12];
+    let prevPc = root;
+    for (let i = 1; i < uniq.length; i++) {
+        const pc = uniq[(start + i) % uniq.length];
+        palette.push(palette[palette.length - 1] + (((pc - prevPc) + 12) % 12));
+        prevPc = pc;
+    }
+    return palette;
+}
+
+/**
+ * Scale palette: the scale's pitch classes placed in a fixed C3-B3 window,
+ * sorted ascending. Anchored at C (NOT the scale root) so parsimonious scale
+ * changes in the 57-network move as few keys as possible: pitch classes
+ * shared between consecutive scales usually stay on the same keys; only the
+ * changed scale tones move.
+ */
+function paletteFromWindow(pcs) {
+    if (!pcs || pcs.length === 0) return null;
+    const uniq = [...new Set(pcs.map(pc => ((pc % 12) + 12) % 12))].sort((a, b) => a - b);
+    return uniq.map(pc => 48 + pc);
+}
+
+/**
+ * Root-mode fifth: interval above the root of the chord tone nearest a
+ * perfect fifth (7 semitones). Ties pick the higher tone (root+8 over the
+ * root+6 tritone). 0 (the root itself) if the chord has no other tones.
+ */
+function fifthInterval(rootPc, chordPcs) {
+    if (!chordPcs || chordPcs.length === 0) return 0;
+    let best = null;
+    for (const pc of new Set(chordPcs.map(p => ((p % 12) + 12) % 12))) {
+        const iv = ((pc - rootPc) + 12) % 12;
+        if (iv === 0) continue;
+        if (best === null || Math.abs(iv - 7) < Math.abs(best - 7) ||
+            (Math.abs(iv - 7) === Math.abs(best - 7) && iv > best)) best = iv;
+    }
+    return best === null ? 0 : best;
+}
+
+/**
+ * The palette for this device's NoteSource, from current harmony state.
+ * null = nothing playable (no harmony yet, or display-only chord).
+ */
+function currentPalette() {
+    switch (noteSource) {
+        case 1: {  // Root: A S D = root (near C1), F G H = fifth, J K L = root +12
+            if (currentChordRoot === null) return null;
+            const r = placeNear48(currentChordRoot) - 24;
+            const f = r + fifthInterval(currentChordRoot,
+                currentChordNotes ? currentChordNotes.map(n => n % 12) : null);
+            return [r, r, r, f, f, f];
+        }
+        case 2:  // Scale: scale tones in a fixed C octave window, sorted
+            return currentScalePcs ? paletteFromWindow(currentScalePcs) : null;
+        default: // Chord: chord pitch classes, close position from harmonic root
+            return currentChordNotes
+                ? paletteFromPcs(currentChordNotes.map(n => n % 12), currentChordRoot)
+                : null;
     }
 }
 
-function refreshOutput() {
-    sendNoteOffs();
-    const notes = currentOutputNotes();
-    if (!playChords || !notes) return;
-    for (const note of notes) {
-        maxApi.outlet('midiNote', note, NOTE_VELOCITY);
+/**
+ * Map an incoming MIDI pitch to an output pitch (Tonalign Stack White,
+ * re-anchored at C4). Returns -1 for blocked input (black key, no palette,
+ * or out of MIDI range).
+ */
+function mapInputToOutput(inputPitch) {
+    const wk = whiteKeyIndex(inputPitch);
+    if (wk < 0) return -1;
+    const palette = currentPalette();
+    if (!palette) return -1;
+    const rel = wk - WK_C4;
+    const len = palette.length;
+    let out;
+    if (len === 1) {
+        // Single-note palette: every white key in a row plays the same note;
+        // each row up/down shifts an octave. (An octave-per-key mapping would
+        // leave most of the keyboard outside MIDI range.)
+        out = palette[0] + 12 * Math.floor(rel / 7);
+    } else {
+        const degree = ((rel % len) + len) % len;
+        out = palette[degree] + 12 * Math.floor(rel / len);
     }
-    heldNotes = notes.slice();
+    return (out >= 0 && out <= 127) ? out : -1;
+}
+
+function sendMidi(pitch, velocity) {
+    maxApi.outlet('midiNote', pitch, velocity);
+}
+
+// Is this output pitch held by any active mapping?
+function outputInUse(pitch) {
+    return activeNotes.some(n => n.outputPitch === pitch);
+}
+
+function noteOn(inputPitch, velocity, channel) {
+    // Retriggered input without a note-off: release the old mapping first
+    noteOff(inputPitch, channel);
+    const out = mapInputToOutput(inputPitch);
+    if (out < 0) return;  // blocked - no output; its note-off will be dropped
+    if (!outputInUse(out)) sendMidi(out, velocity);  // refcount: no duplicate note-ons
+    activeNotes.push({ inputPitch, outputPitch: out, velocity, channel });
+}
+
+function noteOff(inputPitch, channel) {
+    for (let i = 0; i < activeNotes.length; i++) {
+        const n = activeNotes[i];
+        if (n.inputPitch === inputPitch && n.channel === channel) {
+            activeNotes.splice(i, 1);
+            // refcount: only silence the output when no other input holds it
+            if (!outputInUse(n.outputPitch)) sendMidi(n.outputPitch, 0);
+            return;
+        }
+    }
+    // Untracked note-off (input was blocked at note-on) - drop it, like Tonalign
+}
+
+/**
+ * Harmony or NoteSource changed while notes are held: re-pitch every held
+ * input against the new palette (Tonalign checkUpdateNoteMappings, Interrupt
+ * always on). Note-offs are emitted before note-ons; outputs that survive
+ * unchanged are left sounding (no duplicate note-ons, no orphaned note-offs).
+ */
+function remapActiveNotes() {
+    if (activeNotes.length === 0) return;
+    const oldSounding = new Set(activeNotes.map(n => n.outputPitch));
+    const next = [];
+    for (const n of activeNotes) {
+        const out = mapInputToOutput(n.inputPitch);
+        // out < 0: input no longer playable (palette gone) - drop the mapping
+        if (out >= 0) next.push({ inputPitch: n.inputPitch, outputPitch: out, velocity: n.velocity, channel: n.channel });
+    }
+    const newSounding = new Set(next.map(n => n.outputPitch));
+    for (const p of oldSounding) {
+        if (!newSounding.has(p)) sendMidi(p, 0);   // note-off first (Tonalign order)
+    }
+    const sent = new Set();
+    for (const n of next) {
+        const p = n.outputPitch;
+        if (oldSounding.has(p) || sent.has(p)) continue;
+        sendMidi(p, n.velocity);
+        sent.add(p);
+    }
+    activeNotes = next;
+}
+
+// Release everything: note-offs for all sounding outputs, clear bookkeeping
+function flushAllNotes() {
+    const sounding = new Set(activeNotes.map(n => n.outputPitch));
+    for (const p of sounding) sendMidi(p, 0);
+    activeNotes = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -467,8 +635,17 @@ function extractChordInfoRoot(doc) {
 async function poll() {
     if (!config.enabled || !config.roomCode) return;
 
+    // Capture generation before async work to detect stale callbacks
+    const myGeneration = connectionGeneration;
+
     try {
         const doc = await fetchRoomDocument();
+
+        // Check if connection changed while we were waiting
+        if (myGeneration !== connectionGeneration) {
+            maxApi.post('Poll result discarded (connection changed)');
+            return;
+        }
 
         // --- BPM ---
         const bpm = extractBpm(doc);
@@ -498,12 +675,12 @@ async function poll() {
                 const approx = parsed.scaleClass === 'hexatonic' ? ' (superset approximation)' : '';
                 maxApi.post(`Scale: ${parsed.rootName} ${display} → Ableton ${parsed.abletonScaleName}${approx}`);
 
-                // Cache scale pitch classes for Scale Notes output mode
+                // Cache scale pitch classes + root for the Scale palette
                 const intervals = SCALE_CLASS_INTERVALS[parsed.scaleClass];
                 currentScalePcs = intervals
                     ? intervals.map(iv => (parsed.root + iv) % 12).sort((a, b) => a - b)
                     : null;
-                if (outputMode === 2) refreshOutput();
+                remapActiveNotes();  // re-pitch held notes against the new scale
             }
         }
 
@@ -515,16 +692,23 @@ async function poll() {
 
             currentChordNotes = resolveChordNotes(doc, chordData);
             currentChordRoot = resolveChordRoot(doc, chordData);
-            if (outputMode !== 2) refreshOutput();
+            remapActiveNotes();  // re-pitch held notes against the new chord
             if (currentChordNotes) {
-                maxApi.post(`Chord: ${chordData} → notes [${currentChordNotes.join(' ')}]`);
+                maxApi.post(`Chord: ${chordData} → pcs [${currentChordNotes.map(n => n % 12).join(' ')}]`);
             } else {
                 maxApi.post(`Chord: ${chordData} (no voicing found, display only)`);
             }
         }
 
         setStatus('connected');
+        // Output roomcode so the patch can show room-specific status
+        maxApi.outlet('roomcode', config.roomCode);
     } catch (err) {
+        // Check if connection changed while we were waiting
+        if (myGeneration !== connectionGeneration) {
+            maxApi.post('Poll error discarded (connection changed)');
+            return;
+        }
         setStatus('error');
         maxApi.post(`Error: ${err.message}`);
     }
@@ -533,6 +717,8 @@ async function poll() {
 function startPolling() {
     stopPolling();
     if (config.roomCode) {
+        // Increment generation for the new connection
+        connectionGeneration++;
         config.enabled = true;
         setStatus('ready');  // banner shows "connecting..." until first poll lands
         poll();  // Immediate first poll
@@ -542,18 +728,28 @@ function startPolling() {
 }
 
 function stopPolling() {
+    // Increment generation to invalidate any in-flight async poll callbacks
+    connectionGeneration++;
+
     config.enabled = false;
     if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
     }
-    sendNoteOffs();
+    flushAllNotes();
     currentChordNotes = null;
     currentChordRoot = null;
     currentScalePcs = null;
     lastBpm = null;
     lastScaleData = null;
     lastChordData = null;
+
+    // Output clear values so the patch can reset displays
+    maxApi.outlet('roomcode', '');  // empty roomcode signals disconnected
+    maxApi.outlet('bpm', 120);      // default BPM
+    maxApi.outlet('rootName', '');  // clear scale root
+    maxApi.outlet('scaleClass', ''); // clear scale class
+    maxApi.outlet('chord', '');     // clear chord
 }
 
 // ---------------------------------------------------------------------------
@@ -632,27 +828,36 @@ maxApi.addHandler('disconnect', () => {
     maxApi.post('Disconnected');
 });
 
-// Note output on/off (from device toggle). Default on.
-maxApi.addHandler('playChords', (val) => {
-    const on = !!parseFloat(val);
-    if (on === playChords) return;
-    playChords = on;
-    if (on) {
-        refreshOutput();  // resume current mode's notes
-        maxApi.post('Note output: on');
-    } else {
-        sendNoteOffs();
-        maxApi.post('Note output: off');
-    }
+// Incoming MIDI note from the track (midiparse -> pack pitch vel ch).
+// Velocity 0 note-on is treated as note-off. Channel defaults to 1.
+maxApi.addHandler('noteIn', (pitch, velocity, channel) => {
+    const p = parseInt(pitch, 10);
+    const v = parseInt(velocity, 10);
+    const ch = (channel === undefined) ? 1 : parseInt(channel, 10) || 1;
+    if (isNaN(p) || isNaN(v) || p < 0 || p > 127) return;
+    if (v > 0) noteOn(p, v, ch);
+    else noteOff(p, ch);
 });
 
-// Output mode (from device dropdown): 0 = chord voicing, 1 = chord root, 2 = scale notes
+// Incoming CC from the track (value, controller number - Max ctl order).
+// CC123 (All Notes Off) clears bookkeeping and flushes generated notes.
+maxApi.addHandler('ccIn', (value, controller) => {
+    if (parseInt(controller, 10) === 123) flushAllNotes();
+});
+
+// Panic / cleanup from the patch (e.g. on device delete or transport stop)
+maxApi.addHandler('flush', () => {
+    flushAllNotes();
+});
+
+// NoteSource (from device dropdown): 0 = Chord, 1 = Root, 2 = Scale.
+// Message name stays 'mode' to match the existing patch wiring.
 maxApi.addHandler('mode', (m) => {
     const mode = parseInt(m, 10);
-    if (isNaN(mode) || mode < 0 || mode >= OUTPUT_MODES.length || mode === outputMode) return;
-    outputMode = mode;
-    maxApi.post(`Output mode: ${OUTPUT_MODES[mode]}`);
-    refreshOutput();
+    if (isNaN(mode) || mode < 0 || mode >= NOTE_SOURCES.length || mode === noteSource) return;
+    noteSource = mode;
+    maxApi.post(`NoteSource: ${NOTE_SOURCES[mode]}`);
+    remapActiveNotes();  // re-pitch held notes against the new palette
 });
 
 // Manual poll (for testing)
