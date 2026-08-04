@@ -162,6 +162,14 @@ async function main() {
         handlers.noteIn(65, 90, 1);   // F key -> root(36) + 8 = 44
         assert.deepStrictEqual(midiEvents(), [[44, 90]]);
         handlers.noteIn(65, 0, 1);
+        clearMidi();
+        // equidistant tie {3rd, b7}: also the higher (root+10)
+        mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'no5-test', root: 0, voicing: [48, 52, 58] });
+        handlers.poll();
+        await sleep(50);
+        handlers.noteIn(65, 90, 1);   // F key -> root(36) + 10 = 46
+        assert.deepStrictEqual(midiEvents(), [[46, 90]]);
+        handlers.noteIn(65, 0, 1);
         // restore Cmaj7 for the following tests
         mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'cmaj7-test', root: 0, voicing: [48, 52, 67, 71] });
         handlers.poll();
