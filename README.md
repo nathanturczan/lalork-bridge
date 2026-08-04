@@ -15,7 +15,7 @@ Works with:
 |------------|----------------|--------|
 | `bpm` | Session tempo | `live.object` → `set tempo` |
 | `scaleData` | Scale Awareness | `live.object` → `set root_note` + `set scale_name` |
-| `chordData` / `chordInfo` | MIDI notes into the device's own track (chord voicing, chord root, or scale notes — selectable) | `midiformat` → `midiout` |
+| `chordData` / `chordInfo` | Harmony palette for the played instrument (Chord / Root / Scale — selectable NoteSource) | incoming MIDI remapped → `midiformat` → `midiout` |
 
 ## Architecture
 
@@ -34,32 +34,40 @@ Firestore room doc (public read)
     │   Ableton Scale Awareness updates
     │   (Push, Wavetable, scale-aware plugins all follow)
     │
-    └─ resolve chord → MIDI voicing
+    └─ resolve chord → harmony palette
+             ↓
+        incoming MIDI notes remapped to palette
              ↓
         midiformat → midiout
              ↓
-        chord notes play through whatever
+        played notes sound through whatever
         instrument is on the same track
 ```
 
-**No MIDI routing needed.** Tempo and scale go directly to Ableton's API; chord notes flow straight into the track the device sits on. Incoming track MIDI passes through untouched.
+**No MIDI routing needed.** Tempo and scale go directly to Ableton's API. The device is a **played instrument**: it remaps incoming MIDI notes (hardware keyboard or Live's Computer MIDI Keyboard) into the current harmony and sends them to the instrument on its track. No input, no sound.
 
-## Note Output Modes
+## Playing (Stack White)
 
-Each device instance plays sustained notes (held until the harmony changes) through the instrument on its own track. An **Output** dropdown selects what it plays, so you can put one instance on each of several tracks:
+The mapping is Tonalign's **Stack White** algorithm: white keys select successive notes of a harmony palette, wrapping up an octave when the palette is exhausted; black keys are blocked (their note-ons and note-offs are dropped). C4 always plays the first palette note. Example — Cmaj7 palette `[60, 64, 67, 71]`, playing white keys upward from C4 yields `60, 64, 67, 71, 72, 76, 79, 83, 84`.
 
-| Mode | Notes | Range |
-|------|-------|-------|
-| **Chord Voicing** (default) | The current chord's exact voicing | absolute MIDI from the room |
-| **Chord Root** | The chord root as a single bass note | pitch class + 24 (MIDI 24-35) |
-| **Scale Notes** | All pitch classes of the current scale | pitch class + 36 (MIDI 36-47) |
+A **NoteSource** dropdown selects the palette, so you can put one instance on each of several tracks:
 
-A **Play** toggle turns note output off (all notes are released immediately). Tempo and scale sync are unaffected by the mode — every instance sets them identically (idempotent), so multiple instances coexist as long as they're on **different tracks**.
+| NoteSource | Palette |
+|------------|---------|
+| **Chord** (default) | The current chord's pitch classes, ascending close position from the chord root (normalized near middle C) |
+| **Root** | Successive octaves of the chord root |
+| **Scale** | The current scale's degrees, ascending from the scale root |
 
-Voicing resolution order (Chord Voicing mode):
-1. `chordInfo.voicing` from the room doc — exact absolute-MIDI voicing, written by current Dashboard versions (Harmony Payload v2, includes custom chords)
-2. Lookup of `chordData` in `chords_no_supersets.json` → `original_voicing` (rooms hosted by older Dashboard versions; **not embedded in the frozen device** — only available when running the unfrozen source with the file alongside)
-3. No match → chord is display-only, no notes
+Behavior details:
+- Velocity is preserved; original incoming notes are suppressed; non-note MIDI (CC, bend, aftertouch) passes through
+- When the harmony or NoteSource changes while notes are held, held notes are re-pitched immediately (note-offs first, velocities kept) — no stuck notes
+- Note-offs always release the exact generated note, even after a harmony change; duplicate outputs are refcounted; CC 123 (All Notes Off) flushes everything
+- Tempo and scale sync are unaffected by NoteSource — every instance sets them identically (idempotent), so multiple instances coexist as long as they're on **different tracks**
+
+Chord palette resolution order:
+1. `chordInfo` (root + voicing) from the room doc — written by current Dashboard versions (Harmony Payload v2, includes custom chords); the voicing's pitch classes are re-stacked close position from the root
+2. Lookup of `chordData` in the chord DB inlined into `firestore-bridge.js` (rooms hosted by older Dashboard versions; regenerate with `scripts/inline-chord-db.py`)
+3. No match → chord is display-only, playing produces no notes
 
 ## Scale Class Mapping
 
@@ -105,9 +113,9 @@ None. The device is plug-and-play, dedicated to the `la-laptop-orchestra` room. 
 3. Polls `https://firestore.googleapis.com/v1/projects/scale-navigator-ensemble/...`
 4. Extracts `bpm`, `scaleData`, `chordData`, `chordInfo` from response
 5. Parses `scaleData` (e.g., `"g_harmonic_minor"` → root 7, scale "Harmonic Minor")
-6. Resolves the chord to a MIDI voicing (`chordInfo.voicing`, else bundled chord DB)
-7. Sends to Max: `rootNote 7`, `scaleName "Harmonic Minor"`, `bpm 120`, `midiNote <pitch> <vel>` per chord note
-8. Max routes tempo/scale to `live.object` and chord notes to `midiformat → midiout`
+6. Resolves the chord to a harmony palette (`chordInfo` root + voicing, else bundled chord DB)
+7. Sends to Max: `rootNote 7`, `scaleName "Harmonic Minor"`, `bpm 120`; incoming MIDI notes arrive as `noteIn <pitch> <vel> <ch>` and come back as `midiNote <pitch> <vel>` remapped to the palette
+8. Max routes tempo/scale to `live.object` and played notes to `midiformat → midiout`
 
 ## UI
 
@@ -120,7 +128,7 @@ None. The device is plug-and-play, dedicated to the `la-laptop-orchestra` room. 
 │  ┌─────────────────────────────────────────────────┐    │
 │  │           ● FOLLOWING LALORK (green)            │    │
 │  └─────────────────────────────────────────────────┘    │
-│  [x] Play   Output: [Chord Voicing ▾]                   │
+│  NoteSource: [Chord ▾]                                  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -172,9 +180,11 @@ Use this device for Firebase-connected workflows. Use Scale Awareness Bridge for
 │   └── Scale Navigator Bridge.amxd  # FROZEN, self-contained — this is the distributable
 ├── Scale Navigator Bridge.amxd   # Unfrozen source device (development only)
 ├── code/
-│   ├── firestore-bridge.js       # Node script (polling + parsing + chord MIDI)
-│   ├── chords_no_supersets.json  # Chord voicing DB (fallback for old rooms; not frozen in)
+│   ├── firestore-bridge.js       # Node script (polling + parsing + Stack White engine)
+│   ├── chords_no_supersets.json  # Chord voicing DB source (inlined into the JS by scripts/inline-chord-db.py)
 │   └── package.json
+├── test/
+│   └── stack-white-test.js       # Deterministic offline tests (node test/stack-white-test.js)
 └── README.md
 ```
 
