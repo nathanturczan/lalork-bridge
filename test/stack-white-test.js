@@ -129,18 +129,38 @@ async function main() {
         assert.deepStrictEqual(midiEvents(), []);
     });
 
-    ok('Root: whole white-key row plays the root; rows shift octaves', () => {
+    ok('Root: A S D = root, F G H = fifth, J K L = root up an octave', () => {
         clearMidi();
         handlers.mode(1);
-        [60, 62, 64].forEach(p => handlers.noteIn(p, 90, 1));  // same row -> same note (refcounted)
-        assert.deepStrictEqual(midiEvents(), [[48, 90]]);
-        handlers.noteIn(72, 90, 1);   // next row up -> +12
-        handlers.noteIn(48, 90, 1);   // row below C4 -> -12
-        assert.deepStrictEqual(midiEvents(), [[48, 90], [60, 90], [36, 90]]);
+        // Cmaj7 root palette [36,36,36,43,43,43] (root near C2, perfect fifth)
+        [60, 62, 64].forEach(p => handlers.noteIn(p, 90, 1));  // A S D -> root (refcounted)
+        assert.deepStrictEqual(midiEvents(), [[36, 90]]);
+        [65, 67, 69].forEach(p => handlers.noteIn(p, 90, 1));  // F G H -> fifth
+        assert.deepStrictEqual(midiEvents(), [[36, 90], [43, 90]]);
+        [71, 72, 74].forEach(p => handlers.noteIn(p, 90, 1));  // J K L -> root +12
+        assert.deepStrictEqual(midiEvents(), [[36, 90], [43, 90], [48, 90]]);
         clearMidi();
-        [60, 62, 64, 72, 48].forEach(p => handlers.noteIn(p, 0, 1));
-        assert.deepStrictEqual(midiEvents(), [[48, 0], [60, 0], [36, 0]]);
+        [60, 62, 64, 65, 67, 69, 71, 72, 74].forEach(p => handlers.noteIn(p, 0, 1));
+        assert.deepStrictEqual(midiEvents(), [[36, 0], [43, 0], [48, 0]]);
     });
+
+    // Root fifth fallback: chord without a perfect fifth uses the nearest chord tone
+    {
+        clearMidi();
+        // Gm7b5: root 7, pcs {7,10,1,5} -> intervals {3,6,10}; nearest to 7 is 6
+        mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'gm7b5-test', root: 7, voicing: [43, 46, 49, 53] });
+        handlers.poll();
+        await sleep(50);
+        handlers.noteIn(65, 90, 1);   // F key -> "fifth" = root(31) + 6 = 37
+        assert.deepStrictEqual(midiEvents(), [[37, 90]]);
+        handlers.noteIn(65, 0, 1);
+        // restore Cmaj7 for the following tests
+        mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'cmaj7-test', root: 0, voicing: [48, 52, 67, 71] });
+        handlers.poll();
+        await sleep(50);
+        passed++;
+        console.log('  ok - Root fifth falls back to nearest chord tone (m7b5 -> b5)');
+    }
 
     ok('Scale palette = fixed C window (C diatonic -> identity an octave down)', () => {
         clearMidi();
@@ -224,24 +244,35 @@ async function main() {
     ok('NoteSource change re-pitches held notes', () => {
         clearMidi();
         handlers.noteIn(62, 100, 1);   // Dm7 chord palette -> 53
-        handlers.mode(1);              // Root: palette [50] -> input 62 (same row) = 50
-        assert.deepStrictEqual(midiEvents(), [[53, 100], [53, 0], [50, 100]]);
+        handlers.mode(1);              // Root: palette [38x3,45x3] -> S key = root 38
+        assert.deepStrictEqual(midiEvents(), [[53, 100], [53, 0], [38, 100]]);
         clearMidi();
         handlers.noteIn(62, 0, 1);
-        assert.deepStrictEqual(midiEvents(), [[50, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[38, 0]]);
         handlers.mode(0);
     });
 
-    ok('unchanged outputs survive remap without retrigger', () => {
+    // chord change that leaves the Root palette identical -> no events at all
+    {
         clearMidi();
-        handlers.noteIn(60, 100, 1);   // Dm7 chord -> 50
-        handlers.mode(1);              // Root palette [50]: input 60 -> 50 (unchanged)
-        assert.deepStrictEqual(midiEvents(), [[50, 100]]);  // no off/on pair from the remap
+        handlers.mode(1);
+        handlers.noteIn(60, 100, 1);   // Dm7 root -> 38
+        // D7: same root (2), still has a perfect fifth -> identical Root palette
+        mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'd7-test', root: 2, voicing: [50, 54, 57, 60] });
+        handlers.poll();
+        await sleep(50);
+        assert.deepStrictEqual(midiEvents(), [[38, 100]]);  // no off/on pair from the remap
         clearMidi();
         handlers.noteIn(60, 0, 1);
-        assert.deepStrictEqual(midiEvents(), [[50, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[38, 0]]);
         handlers.mode(0);
-    });
+        // restore Dm7 for the cleanup tests
+        mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'dm7-test', root: 2, voicing: [50, 53, 57, 60] });
+        handlers.poll();
+        await sleep(50);
+        passed++;
+        console.log('  ok - unchanged outputs survive remap without retrigger');
+    }
 
     console.log('cleanup paths:');
 

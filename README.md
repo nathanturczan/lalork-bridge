@@ -55,7 +55,7 @@ A **NoteSource** dropdown selects the palette, so you can put one instance on ea
 | NoteSource | Palette |
 |------------|---------|
 | **Chord** (default) | The current chord's pitch classes, ascending close position from the chord root (placed near C3) |
-| **Root** | The chord root alone: every white key in a row plays it, and each row up or down shifts an octave |
+| **Root** | Bass zones: A S D play the chord root (near C2), F G H its fifth (the chord tone nearest a perfect fifth if there isn't one), J K L the root an octave up; the pattern continues in both directions |
 | **Scale** | The current scale's tones placed in a fixed C3–B3 window, sorted ascending — anchored at C, **not** the scale root, so a parsimonious scale change moves as few keys as possible (shared tones stay on the same keys) |
 
 Behavior details:

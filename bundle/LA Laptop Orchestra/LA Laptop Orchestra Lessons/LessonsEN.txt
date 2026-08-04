@@ -52,7 +52,7 @@ $TargetName Root
 
 *Root*
 
-Every white key plays the root of the current chord. Change your keyboard's octave (Z and X) to move it up or down. Use it for bass lines and monophonic parts.
+*A*, *S*, and *D* play the root of the current chord. *F*, *G*, and *H* play its fifth, and *J*, *K*, and *L* the root an octave up. Use it for bass lines.
 
 The device's *NoteSource* is set to *Root*.
 

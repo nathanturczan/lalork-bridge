@@ -288,13 +288,35 @@ function paletteFromWindow(pcs) {
 }
 
 /**
+ * Root-mode fifth: interval above the root of the chord tone nearest a
+ * perfect fifth (7 semitones); ties pick the lower tone. 7 if the chord
+ * has no other tones to choose from.
+ */
+function fifthInterval(rootPc, chordPcs) {
+    if (!chordPcs || chordPcs.length === 0) return 7;
+    let best = null;
+    for (const pc of new Set(chordPcs.map(p => ((p % 12) + 12) % 12))) {
+        const iv = ((pc - rootPc) + 12) % 12;
+        if (iv === 0) continue;
+        if (best === null || Math.abs(iv - 7) < Math.abs(best - 7) ||
+            (Math.abs(iv - 7) === Math.abs(best - 7) && iv < best)) best = iv;
+    }
+    return best === null ? 7 : best;
+}
+
+/**
  * The palette for this device's NoteSource, from current harmony state.
  * null = nothing playable (no harmony yet, or display-only chord).
  */
 function currentPalette() {
     switch (noteSource) {
-        case 1:  // Root: single note -> whole white-key row plays it
-            return currentChordRoot !== null ? [placeNear48(currentChordRoot)] : null;
+        case 1: {  // Root: A S D = root (near C2), F G H = fifth, J K L = root +12
+            if (currentChordRoot === null) return null;
+            const r = placeNear48(currentChordRoot) - 12;
+            const f = r + fifthInterval(currentChordRoot,
+                currentChordNotes ? currentChordNotes.map(n => n % 12) : null);
+            return [r, r, r, f, f, f];
+        }
         case 2:  // Scale: scale tones in a fixed C octave window, sorted
             return currentScalePcs ? paletteFromWindow(currentScalePcs) : null;
         default: // Chord: chord pitch classes, close position from harmonic root
@@ -318,9 +340,9 @@ function mapInputToOutput(inputPitch) {
     const len = palette.length;
     let out;
     if (len === 1) {
-        // Single-note palette (Root): every white key in a row plays the same
-        // note; each row up/down shifts an octave. (An octave-per-key mapping
-        // would leave most of the keyboard outside MIDI range.)
+        // Single-note palette: every white key in a row plays the same note;
+        // each row up/down shifts an octave. (An octave-per-key mapping would
+        // leave most of the keyboard outside MIDI range.)
         out = palette[0] + 12 * Math.floor(rel / 7);
     } else {
         const degree = ((rel % len) + len) % len;

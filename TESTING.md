@@ -173,7 +173,7 @@ Put an instrument (e.g., a piano) on the same track as the device. Play with Liv
 
 ### 5.1 No Input, No Sound
 - [ ] With the device connected and a chord present, silence until you play
-- [ ] Automated tests pass: `node test/stack-white-test.js` (15 checks)
+- [ ] Automated tests pass: `node test/stack-white-test.js` (16 checks)
 
 ### 5.2 Chord NoteSource Succession
 ```
@@ -186,7 +186,7 @@ Room chord = Cmaj7 (chordInfo from Dashboard), NoteSource = Chord
 - [ ] Black keys produce nothing (pressed or released)
 
 ### 5.3 Root and Scale NoteSources
-- [ ] NoteSource = Root: every white key in the C4 row plays the chord root (near C3); shifting the CMK octave up/down moves it an octave — sound at every octave setting, never silence
+- [ ] NoteSource = Root: A S D play the chord root near C2, F G H the fifth (a chord without a perfect fifth uses the nearest chord tone, e.g. m7♭5 → ♭5), J K L the root an octave up; sound at every CMK octave setting, never silence
 - [ ] NoteSource = Scale: white keys from C4 walk the scale's tones sorted in a fixed C3–B3 window (anchored at C, not the scale root)
 - [ ] Change the scale by one tone (e.g., C diatonic → G diatonic): only the changed tone's key re-pitches; keys for shared tones keep their notes
 - [ ] Switching NoteSource while holding notes re-pitches them (no stuck notes, no double attacks on unchanged pitches)
