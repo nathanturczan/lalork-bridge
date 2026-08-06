@@ -77,7 +77,7 @@ images — no literal `*.png` text or 🚫 icons anywhere. Close Live.
 
 1. Rebuild the ZIP:
    ```bash
-   cd "/Users/soney/Github/tempo-m4l-firebase-bridge/bundle"
+   cd "/Users/soney/Github/lalork-bridge/bundle"
    rm "LA Laptop Orchestra.zip"
    zip -r "LA Laptop Orchestra.zip" "LA Laptop Orchestra" -x '*.DS_Store'
    ```
