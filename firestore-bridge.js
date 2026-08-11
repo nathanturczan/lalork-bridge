@@ -17,6 +17,7 @@ const https = require('https');
 let config = {
     projectId: 'scale-navigator-ensemble',
     roomCode: null,           // slug or document ID
+    displayName: null,        // friendly room name (lobby picks); shown in the room field instead of the doc ID
     resolvedDocId: null,      // actual Firestore document ID
     pollInterval: 500,        // ms
     enabled: false
@@ -36,7 +37,19 @@ let connectionGeneration = 0;
 function setStatus(s) {
     if (s === lastStatus) return;
     lastStatus = s;
+    // Re-announce the room on the next successful poll (banner + room field
+    // are rebuilt after any disconnect/error/reconnect)
+    if (s !== 'connected') lastRoomcode = null;
     maxApi.outlet('status', s);
+}
+
+// Emit the effective room code only when it changes; the patch `set`s it into
+// the room textedit, so per-poll emission would stomp in-progress typing
+let lastRoomcode = null;
+function emitRoomcode(code) {
+    if (code === lastRoomcode) return;
+    lastRoomcode = code;
+    maxApi.outlet('roomcode', code);
 }
 
 // Harmony state (palette sources for the Stack White instrument)
@@ -701,8 +714,9 @@ async function poll() {
         }
 
         setStatus('connected');
-        // Output roomcode so the patch can show room-specific status
-        maxApi.outlet('roomcode', config.roomCode);
+        // Announce the effective room (deduped) so every instance's room field
+        // and banner reflect the room this device is actually polling (#27)
+        emitRoomcode(config.displayName || config.roomCode);
     } catch (err) {
         // Check if connection changed while we were waiting
         if (myGeneration !== connectionGeneration) {
@@ -744,8 +758,11 @@ function stopPolling() {
     lastScaleData = null;
     lastChordData = null;
 
-    // Output clear values so the patch can reset displays
-    maxApi.outlet('roomcode', '');  // empty roomcode signals disconnected
+    // Output clear values so the patch can reset displays.
+    // NOTE: roomcode is NOT cleared here — startPolling() calls stopPolling()
+    // on every room switch, and blanking the room field mid-switch would wipe
+    // the code the user just typed. Genuine clears (room '', disconnect) emit
+    // the empty roomcode themselves.
     maxApi.outlet('bpm', 120);      // default BPM
     maxApi.outlet('rootName', '');  // clear scale root
     maxApi.outlet('scaleClass', ''); // clear scale class
@@ -762,13 +779,16 @@ maxApi.addHandler('room', (...parts) => {
         .map(p => String(p)).join(' ').trim();
     if (!code) {
         config.roomCode = null;
+        config.displayName = null;
         config.resolvedDocId = null;
         stopPolling();
+        emitRoomcode('');  // empty roomcode signals "no room"
         setStatus('idle');
         maxApi.post('Room code cleared');
         return;
     }
     config.roomCode = code;
+    config.displayName = null;    // typed/broadcast code is its own display
     config.resolvedDocId = null;  // Clear cached doc ID for re-resolution
     maxApi.post(`Room code set to "${code}"`);
     startPolling();  // Auto-connect whenever a room is set
@@ -794,8 +814,9 @@ maxApi.addHandler('selectRoom', (index) => {
     if (isNaN(i) || i < 0 || i >= roomList.length) return;
     const r = roomList[i];
     config.roomCode = r.id;
+    config.displayName = r.name;  // keep the friendly name in the room field
     config.resolvedDocId = r.id;  // already resolved, skip lookup
-    maxApi.outlet('roomcode', r.name);  // patch mirrors into the room field (persisted)
+    emitRoomcode(r.name);         // patch mirrors into the room field
     maxApi.post(`Room selected from lobby: "${r.name}" (${r.id})`);
     startPolling();
 });
@@ -824,6 +845,7 @@ maxApi.addHandler('connect', () => {
 
 maxApi.addHandler('disconnect', () => {
     stopPolling();
+    emitRoomcode('');  // empty roomcode signals "no room"
     setStatus('disconnected');
     maxApi.post('Disconnected');
 });
