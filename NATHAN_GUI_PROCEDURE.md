@@ -1,5 +1,14 @@
 # Nathan's GUI Procedure: Ship the Stack White Bridge
 
+> **STATUS (Aug 11): HISTORICAL.** This procedure was executed Aug 4 and the
+> branch merged. Since then the workflow changed: the repo-root
+> `LA Laptop Orchestra Bridge.amxd` is now the **FROZEN canonical** device
+> (refrozen Aug 11 with the #27 room-field sync fix, commit `0180ef9`) — it
+> is no longer the unfrozen source. Current freeze/edit workflow lives in
+> `CLAUDE.md` ("CRITICAL: Freeze workflow"). The bundle's device copy and
+> template are stale (pre-#27) pending Elvis's template fixes (#24–26, #28);
+> Parts B/B2/C below remain useful as the template-rebuild reference.
+
 Everything code-side is done and tested on branch `feature/stack-white-notesource`
 (`node test/stack-white-test.js` → 14 checks pass). What remains needs the Max and
 Live GUIs. Do these parts in order, in one sitting.
@@ -95,8 +104,10 @@ images — no literal `*.png` text or 🚫 icons anywhere. Close Live.
 
 ## Caveats
 
+- **(Aug 11 update)** The repo-root device is now frozen — step A7's
+  "unfreeze and re-save the root" convention is retired. See `CLAUDE.md`.
 - `firestore-bridge.js` at the repo root is a **mirror** of the canonical
-  `code/firestore-bridge.js` — keep them in sync (the root copy is what the
+  `code/firestore-bridge.js` — keep them in sync (the root copy is what an
   unfrozen device loads and what freezing embeds).
 - The root `Ensemble Bridge.amxd` and `Scale Navigator Bridge.amxd` dev devices
   still use the old patch wiring (`playChords` etc.). Opened against the new
