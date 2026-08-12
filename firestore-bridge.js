@@ -269,7 +269,8 @@ function placeNear48(pc) {
 
 /**
  * Ascending close-position palette from pitch classes, starting at the root
- * placed nearest C2. Cmaj7 pcs {0,4,7,11} root 0 -> [36, 40, 43, 47].
+ * placed nearest C3. Cmaj7 pcs {0,4,7,11} root 0 -> [48, 52, 55, 59].
+ * (Aug 12 register fix, lalork-bridge#25: was -12 / nearest C2 — too low.)
  */
 function paletteFromPcs(pcs, rootPc) {
     if (!pcs || pcs.length === 0) return null;
@@ -277,7 +278,7 @@ function paletteFromPcs(pcs, rootPc) {
     let root = (rootPc === null || rootPc === undefined) ? uniq[0] : ((rootPc % 12) + 12) % 12;
     if (uniq.indexOf(root) === -1) root = uniq[0];
     const start = uniq.indexOf(root);
-    const palette = [placeNear48(root) - 12];
+    const palette = [placeNear48(root)];
     let prevPc = root;
     for (let i = 1; i < uniq.length; i++) {
         const pc = uniq[(start + i) % uniq.length];
@@ -323,9 +324,10 @@ function fifthInterval(rootPc, chordPcs) {
  */
 function currentPalette() {
     switch (noteSource) {
-        case 1: {  // Root: A S D = root (near C1), F G H = fifth, J K L = root +12
+        case 1: {  // Root: A S D = root (near C2), F G H = fifth, J K L = root +12
+            // (Aug 12 register fix, lalork-bridge#25: was -24 / near C1 — too low.)
             if (currentChordRoot === null) return null;
-            const r = placeNear48(currentChordRoot) - 24;
+            const r = placeNear48(currentChordRoot) - 12;
             const f = r + fifthInterval(currentChordRoot,
                 currentChordNotes ? currentChordNotes.map(n => n % 12) : null);
             return [r, r, r, f, f, f];
