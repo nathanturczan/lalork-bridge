@@ -1,9 +1,9 @@
 # Rehearsal Room Lifecycle & Cleanup
 
 Canonical plan for issues
-[#17](https://github.com/nathanturczan/scale-navigator-bridge-m4l/issues/17)
+[#17](https://github.com/nathanturczan/lalork-bridge/issues/17)
 (lifecycle/TTL) and
-[#18](https://github.com/nathanturczan/scale-navigator-bridge-m4l/issues/18)
+[#18](https://github.com/nathanturczan/lalork-bridge/issues/18)
 (unlisted-but-joinable). Firebase project: `scale-navigator-ensemble`.
 
 ## Model

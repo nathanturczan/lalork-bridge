@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // cleanup-rehearsal-rooms.js — one-time sweep of abandoned rehearsal rooms
-// (scale-navigator-bridge-m4l #17).
+// (lalork-bridge #17).
 //
 // DRY-RUN BY DEFAULT. Lists candidate rooms and exits without touching
 // anything. Deletion requires BOTH --delete AND --yes, plus gcloud auth.
