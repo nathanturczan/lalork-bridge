@@ -268,38 +268,19 @@ function placeNear48(pc) {
 }
 
 /**
- * Ascending close-position palette from pitch classes, starting at the root
- * placed nearest C3. Cmaj7 pcs {0,4,7,11} root 0 -> [48, 52, 55, 59].
- * (Aug 12 register fix, lalork-bridge#25: was -12 / nearest C2 — too low.)
+ * Palette from pitch classes placed in a fixed one-octave window starting at
+ * `base` (a C), sorted ascending. Anchored at C (NOT the root) so parsimonious
+ * harmony changes move as few keys as possible: pitch classes shared between
+ * consecutive chords/scales stay on the same keys; only the changed tones
+ * move — and the register NEVER jumps between chords (Aug 12, #25: the old
+ * root-position chord palette had an F/F# seam that threw the hand around by
+ * up to an octave, e.g. moorland's G Quintal vs Em6/9).
+ * Chords use base 48 (C3-B3), scales base 60 (C4-B4).
  */
-function paletteFromPcs(pcs, rootPc) {
+function paletteFromWindow(pcs, base) {
     if (!pcs || pcs.length === 0) return null;
     const uniq = [...new Set(pcs.map(pc => ((pc % 12) + 12) % 12))].sort((a, b) => a - b);
-    let root = (rootPc === null || rootPc === undefined) ? uniq[0] : ((rootPc % 12) + 12) % 12;
-    if (uniq.indexOf(root) === -1) root = uniq[0];
-    const start = uniq.indexOf(root);
-    const palette = [placeNear48(root)];
-    let prevPc = root;
-    for (let i = 1; i < uniq.length; i++) {
-        const pc = uniq[(start + i) % uniq.length];
-        palette.push(palette[palette.length - 1] + (((pc - prevPc) + 12) % 12));
-        prevPc = pc;
-    }
-    return palette;
-}
-
-/**
- * Scale palette: the scale's pitch classes placed in a fixed C4-B4 window,
- * sorted ascending. Anchored at C (NOT the scale root) so parsimonious scale
- * changes in the 57-network move as few keys as possible: pitch classes
- * shared between consecutive scales usually stay on the same keys; only the
- * changed scale tones move.
- * (Aug 12 register fix, lalork-bridge#25: was 48 / C3-B3 window — too low.)
- */
-function paletteFromWindow(pcs) {
-    if (!pcs || pcs.length === 0) return null;
-    const uniq = [...new Set(pcs.map(pc => ((pc % 12) + 12) % 12))].sort((a, b) => a - b);
-    return uniq.map(pc => 60 + pc);
+    return uniq.map(pc => base + pc);
 }
 
 /**
@@ -333,11 +314,11 @@ function currentPalette() {
                 currentChordNotes ? currentChordNotes.map(n => n % 12) : null);
             return [r, r, r, f, f, f];
         }
-        case 2:  // Scale: scale tones in a fixed C octave window, sorted
-            return currentScalePcs ? paletteFromWindow(currentScalePcs) : null;
-        default: // Chord: chord pitch classes, close position from harmonic root
+        case 2:  // Scale: scale tones in a fixed C4-B4 window, sorted
+            return currentScalePcs ? paletteFromWindow(currentScalePcs, 60) : null;
+        default: // Chord: chord tones in a fixed C3-B3 window, sorted
             return currentChordNotes
-                ? paletteFromPcs(currentChordNotes.map(n => n % 12), currentChordRoot)
+                ? paletteFromWindow(currentChordNotes.map(n => n % 12), 48)
                 : null;
     }
 }

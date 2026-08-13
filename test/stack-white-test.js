@@ -240,28 +240,29 @@ async function main() {
         clearMidi();
         handlers.noteIn(60, 100, 1);   // Cmaj7 chord palette -> 48
         handlers.noteIn(62, 90, 1);    //                     -> 52
-        // Dm7: root 2, pcs {2,5,9,0} -> palette [50,53,57,60]
+        // Dm7: pcs {2,5,9,0} -> C window palette [48,50,53,57]
         mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'dm7-test', root: 2, voicing: [50, 53, 57, 60] });
         handlers.poll();
         await sleep(50);
         const ev = midiEvents();
         assert.deepStrictEqual(ev.slice(0, 2), [[48, 100], [52, 90]]);
-        assert.deepStrictEqual(ev.slice(2), [[48, 0], [52, 0], [50, 100], [53, 90]],
+        // shared pc C stays on the same key (no retrigger); only E -> D moves
+        assert.deepStrictEqual(ev.slice(2), [[52, 0], [50, 90]],
             `remap events wrong: ${JSON.stringify(ev)}`);
         clearMidi();
         // note-offs stop the NEW pitches
         handlers.noteIn(60, 0, 1);
         handlers.noteIn(62, 0, 1);
-        assert.deepStrictEqual(midiEvents(), [[50, 0], [53, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[48, 0], [50, 0]]);
         passed++;
         console.log('  ok - harmony change re-pitches held notes (off before on, velocity kept)');
     }
 
     ok('NoteSource change re-pitches held notes', () => {
         clearMidi();
-        handlers.noteIn(62, 100, 1);   // Dm7 chord palette -> 53
+        handlers.noteIn(62, 100, 1);   // Dm7 chord palette -> 50
         handlers.mode(1);              // Root: palette [38x3,45x3] -> S key = root 38
-        assert.deepStrictEqual(midiEvents(), [[53, 100], [53, 0], [38, 100]]);
+        assert.deepStrictEqual(midiEvents(), [[50, 100], [50, 0], [38, 100]]);
         clearMidi();
         handlers.noteIn(62, 0, 1);
         assert.deepStrictEqual(midiEvents(), [[38, 0]]);
@@ -298,7 +299,7 @@ async function main() {
         handlers.noteIn(62, 90, 1);
         handlers.ccIn(0, 123);
         const ev = midiEvents();
-        assert.deepStrictEqual(ev.slice(2).sort((a, b) => a[0] - b[0]), [[50, 0], [53, 0]]);
+        assert.deepStrictEqual(ev.slice(2).sort((a, b) => a[0] - b[0]), [[48, 0], [50, 0]]);
         clearMidi();
         handlers.noteIn(60, 0, 1);     // bookkeeping cleared - nothing to release
         assert.deepStrictEqual(midiEvents(), []);
@@ -308,7 +309,7 @@ async function main() {
         clearMidi();
         handlers.noteIn(60, 100, 1);
         handlers.flush();
-        assert.deepStrictEqual(midiEvents(), [[50, 100], [50, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[48, 100], [48, 0]]);
     });
 
     ok('disconnect releases held notes (no stuck notes)', () => {
@@ -316,7 +317,7 @@ async function main() {
         handlers.noteIn(60, 100, 1);
         handlers.disconnect();
         const ev = midiEvents();
-        assert.deepStrictEqual(ev, [[50, 100], [50, 0]]);
+        assert.deepStrictEqual(ev, [[48, 100], [48, 0]]);
     });
 
     ok('after disconnect, input generates nothing (no palette)', () => {
