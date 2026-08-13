@@ -119,8 +119,8 @@ Parse chunks — don't assume fixed offsets. Observed layouts:
 Self-contained deterministic tests in `test/` (mock `max-api` + `https`
 via `Module._load`, no network, no Max):
 
-- `node test/stack-white-test.js` — 16 checks: palettes, held-note
-  re-pitching, refcounting, flush/disconnect cleanup.
+- `node test/stack-white-test.js` — 18 checks: palettes, held-note
+  re-pitching, refcounting, flush/disconnect cleanup, downbeat hold (#32).
 - `node test/roomcode-test.js` — 11 checks: #27 roomcode display protocol
   (emit-once, poll silence, error→recovery re-emit, no blank on room
   switch or typo'd join, clear/disconnect, lobby friendly names).

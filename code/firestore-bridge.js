@@ -631,6 +631,53 @@ function extractChordInfoRoot(doc) {
     }
 }
 
+/**
+ * Extract anticipationMs (downbeat hold, lalork#17) from the room doc.
+ * Rooms running the downbeat contract broadcast harmony this many ms ahead
+ * of the musical downbeat (rehearse stamps 2000 on la-laptop-orchestra).
+ * 0 (instant apply, the old behavior) when absent or invalid; clamped to 10s.
+ */
+function extractAnticipationMs(doc) {
+    const fields = doc.fields;
+    if (!fields || !fields.anticipationMs) return 0;
+    const v = extractFieldValue(fields.anticipationMs);
+    if (typeof v !== 'number' || !isFinite(v) || v <= 0) return 0;
+    return Math.min(v, 10000);
+}
+
+// ---------------------------------------------------------------------------
+// Downbeat hold (lalork-bridge#32)
+//
+// The conductor broadcasts each harmony change anticipationMs BEFORE its
+// downbeat; every receiver (enter, Ensemble Jammer, this bridge) holds the
+// change that long after arrival, so the chord lands on the downbeat
+// everywhere at once. The hold is a property of the ROOM (read from the doc
+// each poll), not of this device or its Rehearsal/Performance mode — every
+// bridge instance in an ensemble behaves identically with nothing to tune
+// per machine. Rooms without anticipationMs (casual Dashboard jams) apply
+// instantly, exactly as before.
+// ---------------------------------------------------------------------------
+
+// Pending hold timers; cleared on disconnect/room switch so a held change
+// never lands after the room changed underneath it.
+let holdTimers = [];
+
+function scheduleApply(delayMs, fn) {
+    if (!(delayMs > 0)) { fn(); return; }
+    const myGeneration = connectionGeneration;
+    const timer = setTimeout(() => {
+        holdTimers = holdTimers.filter(t => t !== timer);
+        if (myGeneration !== connectionGeneration) return;  // stale (room switched)
+        fn();
+    }, delayMs);
+    holdTimers.push(timer);
+}
+
+function clearHoldTimers() {
+    for (const t of holdTimers) clearTimeout(t);
+    holdTimers = [];
+}
+
 // ---------------------------------------------------------------------------
 // Polling Logic
 // ---------------------------------------------------------------------------
@@ -658,13 +705,19 @@ async function poll() {
             maxApi.post(`BPM: ${bpm}`);
         }
 
+        // Downbeat hold: apply harmony changes this long after arrival
+        // (0 = instant, for rooms without the field). Dedup (lastScaleData /
+        // lastChordData) happens at RECEIPT so the 500ms poll doesn't
+        // re-schedule the same change while it waits out the hold.
+        const holdMs = extractAnticipationMs(doc);
+
         // --- Scale Data → Direct to Ableton Scale Awareness ---
         const scaleData = extractScaleData(doc);
         if (scaleData !== null && scaleData !== lastScaleData) {
             lastScaleData = scaleData;
             const parsed = parseScaleData(scaleData);
 
-            if (parsed) {
+            if (parsed) scheduleApply(holdMs, () => {
                 // Send root_note for live.object (0-11)
                 maxApi.outlet('rootNote', parsed.root);
 
@@ -684,23 +737,25 @@ async function poll() {
                     ? intervals.map(iv => (parsed.root + iv) % 12).sort((a, b) => a - b)
                     : null;
                 remapActiveNotes();  // re-pitch held notes against the new scale
-            }
+            });
         }
 
         // --- Chord Data → display + MIDI notes into the track ---
         const chordData = extractChordData(doc);
         if (chordData !== null && chordData !== lastChordData) {
             lastChordData = chordData;
-            maxApi.outlet('chord', chordData);
+            scheduleApply(holdMs, () => {
+                maxApi.outlet('chord', chordData);
 
-            currentChordNotes = resolveChordNotes(doc, chordData);
-            currentChordRoot = resolveChordRoot(doc, chordData);
-            remapActiveNotes();  // re-pitch held notes against the new chord
-            if (currentChordNotes) {
-                maxApi.post(`Chord: ${chordData} → pcs [${currentChordNotes.map(n => n % 12).join(' ')}]`);
-            } else {
-                maxApi.post(`Chord: ${chordData} (no voicing found, display only)`);
-            }
+                currentChordNotes = resolveChordNotes(doc, chordData);
+                currentChordRoot = resolveChordRoot(doc, chordData);
+                remapActiveNotes();  // re-pitch held notes against the new chord
+                if (currentChordNotes) {
+                    maxApi.post(`Chord: ${chordData} → pcs [${currentChordNotes.map(n => n % 12).join(' ')}]`);
+                } else {
+                    maxApi.post(`Chord: ${chordData} (no voicing found, display only)`);
+                }
+            });
         }
 
         setStatus('connected');
@@ -740,6 +795,7 @@ function stopPolling() {
         clearInterval(pollTimer);
         pollTimer = null;
     }
+    clearHoldTimers();  // held harmony must not land after the room changed
     flushAllNotes();
     currentChordNotes = null;
     currentChordRoot = null;

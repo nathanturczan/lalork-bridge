@@ -329,6 +329,49 @@ async function main() {
         assert.deepStrictEqual(midiEvents(), []);
     });
 
+    console.log('downbeat hold (lalork-bridge#32):');
+
+    // Rooms with anticipationMs hold each harmony change that long after
+    // arrival, so the chord lands on the downbeat (lalork#17). Input during
+    // the hold still plays the OLD palette; held notes re-pitch at the apply.
+    {
+        // reconnect (previous test disconnected) on a doc WITHOUT the field
+        mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'cmaj7-test', root: 0, voicing: [48, 52, 67, 71] });
+        handlers.room('test-room');
+        await sleep(50);
+        clearMidi();
+
+        // change to Dm7 in a room that broadcasts 300ms ahead of the downbeat
+        mockDoc = firestoreDoc({ bpm: 120, scaleData: 'g_diatonic', chordData: 'dm7-test', root: 2, voicing: [50, 53, 57, 60] });
+        mockDoc.fields.anticipationMs = { integerValue: '300' };
+        handlers.poll();
+        await sleep(100);   // change received, hold still pending
+        handlers.noteIn(62, 100, 1);  // D key: Cmaj7 -> 52, Dm7 -> 50
+        assert.deepStrictEqual(midiEvents(), [[52, 100]],
+            'old palette must stay active during the hold');
+        await sleep(400);   // hold expires -> apply at the downbeat
+        assert.deepStrictEqual(midiEvents(), [[52, 100], [52, 0], [50, 100]],
+            'held note must re-pitch when the hold expires');
+        handlers.noteIn(62, 0, 1);
+        passed++;
+        console.log('  ok - anticipationMs holds harmony; held note re-pitches at the downbeat');
+    }
+
+    // Disconnect mid-hold: the pending change must never land
+    {
+        mockDoc = firestoreDoc({ bpm: 120, scaleData: 'c_diatonic', chordData: 'g7-test', root: 7, voicing: [43, 47, 50, 53] });
+        mockDoc.fields.anticipationMs = { integerValue: '300' };
+        handlers.poll();
+        await sleep(50);    // change received, hold pending
+        handlers.disconnect();
+        outlets.length = 0;
+        await sleep(400);
+        assert.strictEqual(outlets.length, 0,
+            'no outlet may fire from a hold scheduled before disconnect');
+        passed++;
+        console.log('  ok - disconnect cancels pending downbeat holds');
+    }
+
     console.log(`\n${passed} checks passed`);
     process.exit(0);
 }
