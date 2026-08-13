@@ -27,7 +27,9 @@ const mockMaxApi = {
 let mockDoc = null;
 
 const mockHttps = {
-    get(url, cb) {
+    Agent: function () {},
+    get(url, opts, cb) {
+        if (typeof opts === 'function') cb = opts;
         process.nextTick(() => {
             const listeners = {};
             const res = {

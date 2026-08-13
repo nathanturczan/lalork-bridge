@@ -428,9 +428,14 @@ function buildQueryUrl() {
     return `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/(default)/documents:runQuery`;
 }
 
+// Reuse one TLS connection across polls. Without keep-alive, every 0.5s poll
+// does a fresh TCP + TLS handshake in the same event loop that maps notes —
+// a twice-a-second latency spike on played MIDI (Aug 12).
+const keepAliveAgent = new https.Agent({ keepAlive: true });
+
 function httpGet(url) {
     return new Promise((resolve, reject) => {
-        https.get(url, (res) => {
+        https.get(url, { agent: keepAliveAgent }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => resolve({ status: res.statusCode, data }));
@@ -445,7 +450,8 @@ function httpPost(url, body) {
             hostname: urlObj.hostname,
             path: urlObj.pathname + urlObj.search,
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            agent: keepAliveAgent
         };
         const req = https.request(options, (res) => {
             let data = '';

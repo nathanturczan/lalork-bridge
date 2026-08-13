@@ -43,7 +43,9 @@ function respond(cb, status, body) {
 }
 
 const mockHttps = {
-    get(url, cb) {
+    Agent: function () {},
+    get(url, opts, cb) {
+        if (typeof opts === 'function') cb = opts;
         if (failAll) { respond(cb, 500, '{}'); return { on() { return this; } }; }
         if (url.includes('pageSize')) {
             // room list
