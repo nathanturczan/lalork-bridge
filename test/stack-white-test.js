@@ -178,11 +178,11 @@ async function main() {
         console.log('  ok - Root fifth fallback: m7b5 -> b5; equidistant tie -> higher tone');
     }
 
-    ok('Scale palette = fixed C window (C diatonic -> identity an octave down)', () => {
+    ok('Scale palette = fixed C window (C diatonic -> identity)', () => {
         clearMidi();
         handlers.mode(2);
         [60, 62, 64, 65, 67, 69, 71, 72].forEach(p => handlers.noteIn(p, 80, 1));
-        assert.deepStrictEqual(midiEvents().map(e => e[0]), [48, 50, 52, 53, 55, 57, 59, 60]);
+        assert.deepStrictEqual(midiEvents().map(e => e[0]), [60, 62, 64, 65, 67, 69, 71, 72]);
         clearMidi();
         [60, 62, 64, 65, 67, 69, 71, 72].forEach(p => handlers.noteIn(p, 0, 1));
         assert.strictEqual(midiEvents().length, 8);
@@ -193,20 +193,20 @@ async function main() {
     {
         clearMidi();
         handlers.mode(2);
-        handlers.noteIn(60, 80, 1);  // C key -> 48
-        handlers.noteIn(65, 80, 1);  // F key -> 53
+        handlers.noteIn(60, 80, 1);  // C key -> 60
+        handlers.noteIn(65, 80, 1);  // F key -> 65
         // c_diatonic -> g_diatonic: only F -> F# changes
         mockDoc = firestoreDoc({ bpm: 120, scaleData: 'g_diatonic', chordData: 'cmaj7-test', root: 0, voicing: [48, 52, 67, 71] });
         handlers.poll();
         await sleep(50);
         const ev = midiEvents();
-        // the C key survives without retrigger; only the F key re-pitches 53 -> 54
-        assert.deepStrictEqual(ev, [[48, 80], [53, 80], [53, 0], [54, 80]],
+        // the C key survives without retrigger; only the F key re-pitches 65 -> 66
+        assert.deepStrictEqual(ev, [[60, 80], [65, 80], [65, 0], [66, 80]],
             `parsimony events wrong: ${JSON.stringify(ev)}`);
         clearMidi();
         handlers.noteIn(60, 0, 1);
         handlers.noteIn(65, 0, 1);
-        assert.deepStrictEqual(midiEvents(), [[48, 0], [54, 0]]);
+        assert.deepStrictEqual(midiEvents(), [[60, 0], [66, 0]]);
         handlers.mode(0);
         passed++;
         console.log('  ok - scale change re-pitches only the changed scale tone (C window parsimony)');

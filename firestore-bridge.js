@@ -289,16 +289,17 @@ function paletteFromPcs(pcs, rootPc) {
 }
 
 /**
- * Scale palette: the scale's pitch classes placed in a fixed C3-B3 window,
+ * Scale palette: the scale's pitch classes placed in a fixed C4-B4 window,
  * sorted ascending. Anchored at C (NOT the scale root) so parsimonious scale
  * changes in the 57-network move as few keys as possible: pitch classes
  * shared between consecutive scales usually stay on the same keys; only the
  * changed scale tones move.
+ * (Aug 12 register fix, lalork-bridge#25: was 48 / C3-B3 window — too low.)
  */
 function paletteFromWindow(pcs) {
     if (!pcs || pcs.length === 0) return null;
     const uniq = [...new Set(pcs.map(pc => ((pc % 12) + 12) % 12))].sort((a, b) => a - b);
-    return uniq.map(pc => 48 + pc);
+    return uniq.map(pc => 60 + pc);
 }
 
 /**
