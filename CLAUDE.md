@@ -2,10 +2,15 @@
 
 ## Current canonical device
 
-`LA Laptop Orchestra Bridge.amxd` (repo root) is the shipping LALORK device
-and is **FROZEN** (embeds `firestore-bridge.js`) — the root file IS the
-canonical artifact, not an unfrozen source. Verified frozen at commit
-`0180ef9` with the #27 room-field sync fix.
+`LA Laptop Orchestra Bridge.amxd` (repo root) is the shipping LALORK device.
+**Do not assume its freeze state from this doc — verify from the bytes**
+(unfrozen: plain `ptch` + raw patcher JSON; frozen: `mx@c` container with an
+embedded-file directory; see "amxd file format" below). As of Aug 12 2026
+evening it is **FROZEN** (Nathan refroze after the downbeat-hold JS landed;
+verified headlessly: embedded JS byte-identical to `code/firestore-bridge.js`
+md5 `bb514fd2…`, patcher JSON intact — 69 boxes, `node.script`, `mode_tab`).
+Single-file portable; pending Nathan's Desktop drag-in test before it goes
+to Elvis. Remember: while frozen, edits to `code/` do NOTHING until refreeze.
 
 - JS source of truth: `code/firestore-bridge.js`. The repo-root
   `firestore-bridge.js` is a mirror kept byte-identical (it's what an
