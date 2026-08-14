@@ -13,6 +13,11 @@ Single-file portable; Desktop drag-in test passed Aug 13 and the device
 was sent to Elvis. Remember: while frozen, edits to `code/` do NOTHING
 until refreeze.
 
+**Re-verified Aug 14 2026:** still frozen (`mx@c` at offset 32), 212811
+bytes, md5 `21d421e5…`, and the exact bytes of `code/firestore-bridge.js`
+(md5 `bb514fd2…`) appear verbatim at offset 117417. The root mirror
+`firestore-bridge.js` is byte-identical to `code/`.
+
 - JS source of truth: `code/firestore-bridge.js`. The repo-root
   `firestore-bridge.js` is a mirror kept byte-identical (it's what an
   unfrozen device loads from the search path during edit/refreeze cycles —
@@ -20,6 +25,24 @@ until refreeze.
 - The device is the Stack White played instrument (NoteSource
   Chord/Root/Scale per instance) + tempo/Scale Awareness sync. Full behavior
   spec in `README.md`; design history in `DESIGN_JOURNEY.md`.
+
+### Where it ships from
+
+The public download lives in **`lalork-rehearse/pieces/`** (that repo's Vite
+`publicDir`, so files there are served at the site root):
+`rehearse.lalaptoporchestra.com/LA%20Laptop%20Orchestra%20Bridge.amxd`.
+Enter's ABLETON page links it as **Bridge Only** via
+`enter/src/constants/downloads.ts` (`DOWNLOAD_BASE` defaults to
+`https://lalork-rehearse.vercel.app`). The Ableton template zip embeds its
+own copy of the device.
+
+**After every refreeze, update BOTH** the standalone file in
+`lalork-rehearse/pieces/` and the copy inside the template zip, then
+`vercel --prod` from `lalork-rehearse` (that project has **no git
+auto-deploy** — pushing alone does not publish). On Aug 14 the standalone
+was found to still be the Aug 4 freeze (md5 `a649e588`, no
+`anticipationMs`) while the zip had the current device — the two downloads
+were shipping different bridges for 9 days.
 
 ### Device UI / room protocol
 
@@ -61,6 +84,13 @@ until refreeze.
   Opened against the current script they log "no handler" warnings. Their
   frozen copies in `dist/` are self-contained and unaffected. Don't
   refreeze them against the new script without reworking their patches.
+- **Never publish these.** A frozen `Ensemble Bridge.amxd` (117624 bytes,
+  md5 `493b11d6…`, containing `playChords`) was sitting in
+  `lalork-rehearse/pieces/` and was therefore reachable at
+  `rehearse.lalaptoporchestra.com/Ensemble%20Bridge.amxd` — unlinked from
+  both apps, but a live URL that could be shared or bookmarked. Removed
+  Aug 14 2026; that path now 404s. It does not speak the current room
+  protocol, so anyone who got it would have failed silently.
 - `bundle/LA Laptop Orchestra/` holds the starter template (.als, Lessons,
   frozen device copy). The bundle's device copy is the Aug 4 freeze —
   **stale, pre-#27**. Template fixes are with Elvis (issues #24–26, #28);
@@ -139,7 +169,11 @@ Run both after ANY JS change. Live room doc for manual checks:
 Device: #1 UI polish, #2 Chord Prime Form output mode, #5 streaming
 listener (replace polling), #19 global sync init rules, #20 join
 lifecycle, #21 force-room during performance, #29 room-code persistence
-(dangling pattr — read the issue before touching).
+(dangling pattr — read the issue before touching), **#33 the URLs printed
+in the device are wrong** — the `rehearse_url` / `enter_url` comment boxes
+read `rehearse.laptoporchestra.com` and `enter.laptoporchestra.com`,
+missing the second `la`, and neither domain resolves. Deferred past Aug 15
+because fixing it needs a refreeze; fold it into the next freeze cycle.
 Infra: #3 Blaze upgrade (one instance at 0.5s polling burns the free tier
 in ~7h), #17/#18 rehearsal-room lifecycle → `docs/rehearsal-room-lifecycle.md`.
 Template (Elvis): #4 starter set, #24 arm-key collisions, #25 registers,

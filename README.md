@@ -1,6 +1,8 @@
-# Scale Navigator Bridge (M4L)
+# LA Laptop Orchestra Bridge (M4L)
 
 A Max for Live device that syncs Ableton Live's **tempo and Scale Awareness** directly from a Firebase room — no MIDI routing required.
+
+**The shipping device is `LA Laptop Orchestra Bridge.amxd` at the repo root** (frozen, self-contained). `Ensemble Bridge.amxd` and `Scale Navigator Bridge.amxd` are **legacy** — they use the old pre-Stack-White patch wiring and will not work against the current room protocol. Don't distribute them.
 
 **Replaces Scale Awareness Bridge** for anyone using Scale Navigator rooms.
 
@@ -87,29 +89,30 @@ Scale Navigator's 7 scale classes map to Ableton's scale names:
 
 ## Installation
 
-Use the **frozen** device in `dist/Scale Navigator Bridge.amxd` — it's fully self-contained (the node script is embedded).
+Use the **frozen** `LA Laptop Orchestra Bridge.amxd` at the repo root — it's fully self-contained (the node script and logo are embedded), so it works dragged straight from Downloads or Desktop with no loose files.
 
-1. Drag `dist/Scale Navigator Bridge.amxd` onto any MIDI track in Live — straight from Downloads, Desktop, anywhere
-2. That's it — it connects to the LA Laptop Orchestra room automatically and the banner goes green
+1. Drag it onto any MIDI track in Live
+2. Pick a mode tab: **PERFORMANCE** or **REHEARSAL**
+3. Click **JOIN LA LAPTOP ORCHESTRA** (performance) or enter a code and click **JOIN PRIVATE REHEARSAL**
 
 Optionally copy it into your User Library so it shows up in Live's browser:
 ```
 ~/Music/Ableton/User Library/Presets/MIDI Effects/Max MIDI Effect/
 ```
 
-The `Scale Navigator Bridge.amxd` at the repo root is the **unfrozen source** device — it needs `code/firestore-bridge.js` in Max's search path and is only for development.
-
 ## Configuration
 
-None. The device is plug-and-play, dedicated to the `la-laptop-orchestra` room. To stop syncing, delete the device from the track.
+**The device does not auto-connect.** It loads idle and stays idle until it receives a `room` message — the JS emits `loaded 1` after init so the patch never sends a room before handlers are registered. A gray `ENTER YOUR PRIVATE REHEARSAL CODE` banner on load is correct behavior, not a failure.
 
-- **Room**: hardcoded (`DEFAULT_ROOM` in `firestore-bridge.js`; a `room` message to the node.script retargets it for testing)
+- **Room**: chosen at runtime. `mode_tab` (live.tab) selects `REHEARSAL` (0) or `PERFORMANCE` (1). Performance sends the literal `la-laptop-orchestra`; rehearsal sends whatever is committed in the `rehearsal_input` textedit, or a pick from the lobby menu (`refreshRooms` / `selectRoom`). The field accepts doc IDs, slugs, or friendly room names — case-insensitive, spaces OK.
+- **Joining is global.** Mode and room are shared across every instance in the Set via `send`/`receive lalork-mode` and `lalork-room`, so joining on one track joins them all. The sender joins through its own receive.
+- **No persistence.** Room codes do **not** save with a Live Set (`pattr room_code` is dangling and lacks `@parameter_enable`). Every load starts idle with an empty field, so performers must rejoin after every restart. Deliberate — see issue #29 before "fixing" it.
 - **Poll Interval**: 0.5 seconds (hardcoded; edit `firestore-bridge.js` to change)
 
 ## How It Works
 
-1. `node.script` runs `firestore-bridge.js`, which connects on load
-2. Resolves room slug → document ID
+1. `node.script` runs `firestore-bridge.js`, which registers handlers and emits `loaded 1` — it stays **idle** until the patch sends a `room`
+2. On `room`, resolves slug / friendly name / doc ID → document ID, and outlets `roomcode <code>` once per connection so every instance's field shows the room it is actually polling
 3. Polls `https://firestore.googleapis.com/v1/projects/scale-navigator-ensemble/...`
 4. Extracts `bpm`, `scaleData`, `chordData`, `chordInfo` from response
 5. Parses `scaleData` (e.g., `"g_harmonic_minor"` → root 7, scale "Harmonic Minor")
@@ -121,27 +124,36 @@ None. The device is plug-and-play, dedicated to the `la-laptop-orchestra` room. 
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Scale Navigator Bridge                                 │
-│  Room: la-laptop-orchestra (auto-connects)              │
-│  BPM   120        Scale  G  Harmonic Minor             │
+│  LA Laptop Orchestra Bridge                             │
+│  [ REHEARSAL | PERFORMANCE ]        <- mode_tab         │
+│  BPM   120        Scale  C  Diatonic                    │
 │  Chord Cmaj7                                            │
 │  ┌─────────────────────────────────────────────────┐    │
-│  │           ● FOLLOWING LALORK (green)            │    │
+│  │   ● PERFORMING — LA LAPTOP ORCHESTRA (purple)   │    │
 │  └─────────────────────────────────────────────────┘    │
+│  [ JOIN LA LAPTOP ORCHESTRA ]                           │
 │  NoteSource: [Chord ▾]                                  │
 └─────────────────────────────────────────────────────────┘
 ```
 
-The status banner is a full-width color block, readable from stage distance:
+`mode_tab` switches which controls are visible via `thispatcher script show/hide`. Performance shows `performance_join`; rehearsal shows `rehearsal_label`, `rehearsal_input`, the lobby menu, and `rehearsal_join`.
+
+The status banner is a full-width color block, readable from stage distance. **These are the exact strings in the shipping device** (verified against the frozen patcher, Aug 14 2026):
 
 | State | Banner |
 |-------|--------|
-| Connected and following the room | green — `● FOLLOWING LALORK` |
-| Poll failing (wifi down, room missing) | red — `✗ NO CONNECTION - CHECK WIFI` |
+| Joined the performance room | purple — `● PERFORMING — LA LAPTOP ORCHESTRA` |
+| Joined a private rehearsal room | green — `● REHEARSING — PRIVATE ROOM` |
+| Connected (generic) | green — `● CONNECTED` |
 | Connecting (first poll in flight) | amber — `connecting...` |
+| Joining the performance room | amber — `JOINING LA LAPTOP ORCHESTRA...` |
+| Poll failing (wifi down, room missing) | red — `✗ CHECK ROOM + WIFI` |
 | Manually disconnected | gray — `disconnected` |
+| Idle on load, nothing joined | gray — `ENTER YOUR PRIVATE REHEARSAL CODE` |
 
 Status is emitted only on state *change*, so the banner switches instantly but the patch isn't hammered with messages every poll.
+
+> **Known cosmetic bug (#33):** the `rehearse_url` / `enter_url` comments in the patch read `rehearse.laptoporchestra.com` and `enter.laptoporchestra.com` — missing the second `la`. Those domains do not resolve. The real addresses are `rehearse.lalaptoporchestra.com` and `enter.lalaptoporchestra.com`. Fixing it requires a refreeze.
 
 ## Firestore Document Structure
 
@@ -176,24 +188,26 @@ Use this device for Firebase-connected workflows. Use Scale Awareness Bridge for
 ## File Structure
 
 ```
-├── dist/
-│   └── Scale Navigator Bridge.amxd  # FROZEN, self-contained — this is the distributable
-├── Scale Navigator Bridge.amxd   # Unfrozen source device (development only)
+├── LA Laptop Orchestra Bridge.amxd  # FROZEN, self-contained — THE DISTRIBUTABLE
+├── Ensemble Bridge.amxd             # LEGACY, unfrozen, old patch wiring — do not ship
+├── Scale Navigator Bridge.amxd      # LEGACY, unfrozen, old patch wiring — do not ship
+├── dist/                            # frozen copies of the two legacy devices
+├── firestore-bridge.js              # mirror of code/ (what an unfrozen device loads); keep byte-identical
 ├── code/
-│   ├── firestore-bridge.js       # Node script (polling + parsing + Stack White engine)
+│   ├── firestore-bridge.js       # Node script — SOURCE OF TRUTH (polling + parsing + Stack White engine)
 │   ├── chords_no_supersets.json  # Chord voicing DB source (inlined into the JS by scripts/inline-chord-db.py)
 │   └── package.json
 ├── test/
-│   └── stack-white-test.js       # Deterministic offline tests (node test/stack-white-test.js)
+│   ├── stack-white-test.js       # 18 checks incl. downbeat hold (#32)
+│   └── roomcode-test.js          # 11 checks — #27 roomcode display protocol
 └── README.md
 ```
 
 ### Development workflow
 
-The frozen `dist/` device embeds a snapshot of `firestore-bridge.js`. After editing the script:
-1. Deploy source files next to the unfrozen device, open it in Live, click the pencil to edit in Max
-2. Click the snowflake (Freeze Device), Cmd+S
-3. Copy the frozen result to `dist/`
+The shipping device is **frozen**, so it embeds a snapshot of `firestore-bridge.js` — **editing `code/` does nothing until it is refrozen**, and freezing is GUI-only. Full procedure and verification steps are in `CLAUDE.md` ("CRITICAL: Freeze workflow"). Run `node test/stack-white-test.js` and `node test/roomcode-test.js` after any JS change.
+
+Where the download is served from: `lalork-rehearse/pieces/` (Vite `publicDir`), reachable at `rehearse.lalaptoporchestra.com/LA%20Laptop%20Orchestra%20Bridge.amxd`, and linked from Enter's ABLETON page as **Bridge Only**. The Ableton template zip embeds its own copy — **keep the two in sync** (they drifted once; the standalone was 9 days stale).
 
 ## Related
 
