@@ -1,7 +1,12 @@
 /**
  * Scale Navigator Bridge - Firestore to Ableton
  *
- * Polls a Firestore room document for tempo and harmonic state.
+ * Two harmony sources feed one shared applyHarmonyState path:
+ *   - Firestore room polling (tempo + harmonic state, REST, public-read)
+ *   - Local harmony source: loopback-only HTTP endpoint for the offline
+ *     MIDI 2.0 Flex Data chain (PDF2PDF -> Flex Data -> adapter ->
+ *     POST http://127.0.0.1:8767/harmony). No internet required.
+ *
  * Sends data to Max for direct live.object control of:
  *   - Session tempo
  *   - Scale Awareness (root_note + scale_name)
@@ -12,6 +17,7 @@
 
 const maxApi = require('max-api');
 const https = require('https');
+const http = require('http');   // local harmony source (loopback only)
 
 // Configuration (set via Max messages)
 let config = {
@@ -27,11 +33,20 @@ let config = {
 let lastBpm = null;
 let lastScaleData = null;
 let lastChordData = null;
+let lastChordVoicingKey = null; // dedup: unchanged chordData with a NEW voicing must re-apply
+let lastChordBassPc = null;     // dedup: unchanged chord with a NEW slash bass must re-apply
 let lastStatus = null;
 let pollTimer = null;
 
 // Connection generation: incremented on every connect/disconnect to invalidate stale async callbacks
 let connectionGeneration = 0;
+
+// Active harmony source: 'idle' (nothing applies), 'firestore' (room
+// polling), 'local' (loopback HTTP updates). Deterministic precedence: the
+// most recent explicit action wins — a valid local update pauses Firestore
+// polling and invalidates in-flight poll results via connectionGeneration;
+// sending a room code / 'connect' switches back to Firestore.
+let activeSource = 'idle';
 
 // Emit status to the UI banner only when it changes (poll runs every 500ms)
 function setStatus(s) {
@@ -55,6 +70,7 @@ function emitRoomcode(code) {
 // Harmony state (palette sources for the Stack White instrument)
 let currentChordNotes = null;   // voicing of the current chord (pcs feed the Chord palette)
 let currentChordRoot = null;    // pitch class (0-11) of the current chord root
+let currentExternalBassPc = null; // slash-chord bass pc (0-11), chord-scoped; Root palette override
 let currentScalePcs = null;     // pitch classes (0-11) of the current scale
 
 // NoteSource: which palette this instance plays (per-device dropdown)
@@ -195,6 +211,19 @@ function chordInfoMatches(doc, chordData) {
 }
 
 /**
+ * Dedup key for the exact voicing carried by chordInfo (null when the doc
+ * has no matching chordInfo). Lets applyHarmonyState re-apply a chord whose
+ * id is unchanged but whose exact voicing changed (Dashboard custom-chord
+ * re-voicing; the local source's per-song exact voicings under a reused
+ * display symbol like "G").
+ */
+function chordVoicingKey(doc, chordData) {
+    if (!chordInfoMatches(doc, chordData)) return null;
+    const v = extractChordInfoVoicing(doc);
+    return v ? v.join(',') : null;
+}
+
+/**
  * Resolve the MIDI voicing for the current chord.
  * Priority: room's chordInfo.voicing IF it matches chordData (exact, supports
  *           custom chords)
@@ -308,9 +337,12 @@ function currentPalette() {
     switch (noteSource) {
         case 1: {  // Root: A S D = root (near C2), F G H = fifth, J K L = root +12
             // (Aug 12 register fix, lalork-bridge#25: was -24 / near C1 — too low.)
-            if (currentChordRoot === null) return null;
-            const r = placeNear48(currentChordRoot) - 12;
-            const f = r + fifthInterval(currentChordRoot,
+            // Slash chords: the external bass pc (sent with the chord) replaces
+            // the chord root — the bass part plays the written bass note.
+            const rootPc = currentExternalBassPc !== null ? currentExternalBassPc : currentChordRoot;
+            if (rootPc === null) return null;
+            const r = placeNear48(rootPc) - 12;
+            const f = r + fifthInterval(rootPc,
                 currentChordNotes ? currentChordNotes.map(n => n % 12) : null);
             return [r, r, r, f, f, f];
         }
@@ -679,6 +711,122 @@ function clearHoldTimers() {
 }
 
 // ---------------------------------------------------------------------------
+// Shared Harmony Application
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply a harmony update to Ableton + the Stack White instrument. Both the
+ * Firestore poll and the local harmony source call this, so the two sources
+ * share one code path and one dedup / current-state model.
+ *
+ * update: { bpm?, scaleData?, chordData?, externalBassPc? }
+ *   - field absent (undefined): no change
+ *   - scaleData/chordData null: explicit clear (local source only; the
+ *     Firestore path converts absent fields to undefined, never null)
+ *   - externalBassPc: slash-chord bass pc, chord-scoped — applies only when
+ *     sent alongside chordData and resets on the next chord without one
+ * doc: Firestore room doc for chordInfo voicing resolution. The local source
+ *      passes a doc synthesized from its patch's chordInfo, or {} without
+ *      one — resolution then falls through to the inlined chord DB and the
+ *      chord-symbol prefix, exactly like a room without chordInfo.
+ * holdMs: downbeat hold in ms (0 = instant; local updates are real-time).
+ */
+function applyHarmonyState(update, doc, holdMs) {
+    // --- BPM ---
+    if (update.bpm !== undefined && update.bpm !== null && update.bpm !== lastBpm) {
+        lastBpm = update.bpm;
+        maxApi.outlet('bpm', update.bpm);
+        maxApi.post(`BPM: ${update.bpm}`);
+    }
+
+    // --- Scale Data → Direct to Ableton Scale Awareness ---
+    // Dedup (lastScaleData / lastChordData) happens at RECEIPT so the 500ms
+    // poll doesn't re-schedule the same change while it waits out the hold.
+    if (update.scaleData === null) {
+        if (lastScaleData !== null) {
+            lastScaleData = null;
+            scheduleApply(holdMs, () => {
+                maxApi.outlet('rootName', '');   // clear scale root display
+                maxApi.outlet('scaleClass', ''); // clear scale class display
+                currentScalePcs = null;
+                remapActiveNotes();  // Scale palette gone: held scale notes release
+                maxApi.post('Scale cleared');
+            });
+        }
+    } else if (update.scaleData !== undefined && update.scaleData !== lastScaleData) {
+        lastScaleData = update.scaleData;
+        const parsed = parseScaleData(update.scaleData);
+
+        if (parsed) scheduleApply(holdMs, () => {
+            // Send root_note for live.object (0-11)
+            maxApi.outlet('rootNote', parsed.root);
+
+            // Send display info (Scale Navigator vocabulary)
+            maxApi.outlet('rootName', parsed.rootName);
+            const display = SCALE_CLASS_DISPLAY[parsed.scaleClass] || parsed.scaleClass;
+            maxApi.outlet('scaleClass', display);
+
+            // Send scale_name for live.object (exact Ableton string)
+            maxApi.outlet('scaleName', parsed.abletonScaleName);
+            const approx = parsed.scaleClass === 'hexatonic' ? ' (superset approximation)' : '';
+            maxApi.post(`Scale: ${parsed.rootName} ${display} → Ableton ${parsed.abletonScaleName}${approx}`);
+
+            // Cache scale pitch classes + root for the Scale palette
+            const intervals = SCALE_CLASS_INTERVALS[parsed.scaleClass];
+            currentScalePcs = intervals
+                ? intervals.map(iv => (parsed.root + iv) % 12).sort((a, b) => a - b)
+                : null;
+            remapActiveNotes();  // re-pitch held notes against the new scale
+        });
+    }
+
+    // --- Chord Data → display + MIDI notes into the track ---
+    if (update.chordData === null) {
+        if (lastChordData !== null) {
+            lastChordData = null;
+            lastChordVoicingKey = null;
+            lastChordBassPc = null;
+            scheduleApply(holdMs, () => {
+                maxApi.outlet('chord', '');      // clear chord display
+                currentChordNotes = null;
+                currentChordRoot = null;
+                currentExternalBassPc = null;
+                remapActiveNotes();  // Chord/Root palettes gone: held notes release
+                maxApi.post('Chord cleared');
+            });
+        }
+    } else if (update.chordData !== undefined) {
+        // Dedup on (id, voicing, bass) — not id alone: an unchanged id can
+        // arrive with a NEW exact voicing (Dashboard custom-chord re-voicing;
+        // local songs reusing a display symbol like "G") or a NEW slash bass,
+        // and must re-apply. Identical triples stay deduped so the 500ms poll
+        // doesn't re-apply while a downbeat hold is pending.
+        const voicingKey = chordVoicingKey(doc, update.chordData);
+        const bassPc = update.externalBassPc === undefined ? null : update.externalBassPc;
+        if (update.chordData !== lastChordData || voicingKey !== lastChordVoicingKey ||
+            bassPc !== lastChordBassPc) {
+            lastChordData = update.chordData;
+            lastChordVoicingKey = voicingKey;
+            lastChordBassPc = bassPc;
+            scheduleApply(holdMs, () => {
+                maxApi.outlet('chord', update.chordData);
+
+                currentChordNotes = resolveChordNotes(doc, update.chordData);
+                currentChordRoot = resolveChordRoot(doc, update.chordData);
+                // Chord-scoped slash bass: set only when sent with this chord
+                currentExternalBassPc = bassPc;
+                remapActiveNotes();  // re-pitch held notes against the new chord
+                if (currentChordNotes) {
+                    maxApi.post(`Chord: ${update.chordData} → pcs [${currentChordNotes.map(n => n % 12).join(' ')}]`);
+                } else {
+                    maxApi.post(`Chord: ${update.chordData} (no voicing found, display only)`);
+                }
+            });
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Polling Logic
 // ---------------------------------------------------------------------------
 
@@ -697,66 +845,20 @@ async function poll() {
             return;
         }
 
-        // --- BPM ---
+        // --- Harmony (shared application path with the local source) ---
+        // extract* return null for ABSENT fields; absent means "no change"
+        // on the Firestore path, so nulls become undefined here (only the
+        // local source carries explicit null clears). Downbeat hold: apply
+        // harmony changes holdMs after arrival (0 = instant, for rooms
+        // without the field).
         const bpm = extractBpm(doc);
-        if (bpm !== null && bpm !== lastBpm) {
-            lastBpm = bpm;
-            maxApi.outlet('bpm', bpm);
-            maxApi.post(`BPM: ${bpm}`);
-        }
-
-        // Downbeat hold: apply harmony changes this long after arrival
-        // (0 = instant, for rooms without the field). Dedup (lastScaleData /
-        // lastChordData) happens at RECEIPT so the 500ms poll doesn't
-        // re-schedule the same change while it waits out the hold.
-        const holdMs = extractAnticipationMs(doc);
-
-        // --- Scale Data → Direct to Ableton Scale Awareness ---
         const scaleData = extractScaleData(doc);
-        if (scaleData !== null && scaleData !== lastScaleData) {
-            lastScaleData = scaleData;
-            const parsed = parseScaleData(scaleData);
-
-            if (parsed) scheduleApply(holdMs, () => {
-                // Send root_note for live.object (0-11)
-                maxApi.outlet('rootNote', parsed.root);
-
-                // Send display info (Scale Navigator vocabulary)
-                maxApi.outlet('rootName', parsed.rootName);
-                const display = SCALE_CLASS_DISPLAY[parsed.scaleClass] || parsed.scaleClass;
-                maxApi.outlet('scaleClass', display);
-
-                // Send scale_name for live.object (exact Ableton string)
-                maxApi.outlet('scaleName', parsed.abletonScaleName);
-                const approx = parsed.scaleClass === 'hexatonic' ? ' (superset approximation)' : '';
-                maxApi.post(`Scale: ${parsed.rootName} ${display} → Ableton ${parsed.abletonScaleName}${approx}`);
-
-                // Cache scale pitch classes + root for the Scale palette
-                const intervals = SCALE_CLASS_INTERVALS[parsed.scaleClass];
-                currentScalePcs = intervals
-                    ? intervals.map(iv => (parsed.root + iv) % 12).sort((a, b) => a - b)
-                    : null;
-                remapActiveNotes();  // re-pitch held notes against the new scale
-            });
-        }
-
-        // --- Chord Data → display + MIDI notes into the track ---
         const chordData = extractChordData(doc);
-        if (chordData !== null && chordData !== lastChordData) {
-            lastChordData = chordData;
-            scheduleApply(holdMs, () => {
-                maxApi.outlet('chord', chordData);
-
-                currentChordNotes = resolveChordNotes(doc, chordData);
-                currentChordRoot = resolveChordRoot(doc, chordData);
-                remapActiveNotes();  // re-pitch held notes against the new chord
-                if (currentChordNotes) {
-                    maxApi.post(`Chord: ${chordData} → pcs [${currentChordNotes.map(n => n % 12).join(' ')}]`);
-                } else {
-                    maxApi.post(`Chord: ${chordData} (no voicing found, display only)`);
-                }
-            });
-        }
+        applyHarmonyState({
+            bpm: bpm === null ? undefined : bpm,
+            scaleData: scaleData === null ? undefined : scaleData,
+            chordData: chordData === null ? undefined : chordData
+        }, doc, extractAnticipationMs(doc));
 
         setStatus('connected');
         // Announce the effective room (deduped) so every instance's room field
@@ -779,6 +881,7 @@ function startPolling() {
         // Increment generation for the new connection
         connectionGeneration++;
         config.enabled = true;
+        activeSource = 'firestore';   // explicit room/connect wins over local
         setStatus('ready');  // banner shows "connecting..." until first poll lands
         poll();  // Immediate first poll
         pollTimer = setInterval(poll, config.pollInterval);
@@ -791,6 +894,7 @@ function stopPolling() {
     connectionGeneration++;
 
     config.enabled = false;
+    activeSource = 'idle';
     if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
@@ -799,10 +903,13 @@ function stopPolling() {
     flushAllNotes();
     currentChordNotes = null;
     currentChordRoot = null;
+    currentExternalBassPc = null;
     currentScalePcs = null;
     lastBpm = null;
     lastScaleData = null;
     lastChordData = null;
+    lastChordVoicingKey = null;
+    lastChordBassPc = null;
 
     // Output clear values so the patch can reset displays.
     // NOTE: roomcode is NOT cleared here — startPolling() calls stopPolling()
@@ -813,6 +920,281 @@ function stopPolling() {
     maxApi.outlet('rootName', '');  // clear scale root
     maxApi.outlet('scaleClass', ''); // clear scale class
     maxApi.outlet('chord', '');     // clear chord
+}
+
+// ---------------------------------------------------------------------------
+// Local Harmony Source (offline path — no internet, no Firestore)
+//
+// A loopback-only HTTP endpoint (Node built-in http, bound to 127.0.0.1)
+// accepting the same room vocabulary the Firestore poll reads:
+//
+//   POST /harmony   {"bpm":120,"scaleData":"c_diatonic","chordData":"c_7-17"}
+//
+// Fields are optional (partial updates); scaleData/chordData may be explicit
+// null to clear. chordInfo {id, root, voicing} carries the chord's EXACT
+// notes (id must equal the chordData in the same patch, mirroring the
+// Firestore stale-protection rule) — without it, voicings fall back to the
+// inlined CHORD_DB. externalBassPc (0-11) is the slash-chord bass: the Root
+// palette plays it instead of the chord root, scoped to the chordData sent
+// with it. Feeder: the Flex Data adapter's local sink (PDF2PDF → MIDI 2.0
+// Flex Data → decoder/mapper → this endpoint).
+//
+// Precedence: a valid local update pauses Firestore polling (in-flight poll
+// results are invalidated via connectionGeneration); an explicit room /
+// connect message switches back to Firestore. Last explicit action wins.
+//
+// One listener per port: if another Bridge instance already holds the port,
+// this instance logs it and stays on Firestore/idle (Phase 1 limitation —
+// send "localPort <n>" to make a second instance listen elsewhere).
+// ---------------------------------------------------------------------------
+
+const LOCAL_PORT_DEFAULT = 8767;   // 8765 = PDF2PDF WS, 8766 = ump-listen WS
+const LOCAL_BODY_LIMIT = 4096;     // harmony patches are tiny
+const LOCAL_FIELDS = ['bpm', 'scaleData', 'chordData', 'chordInfo', 'externalBassPc'];
+
+// CORS: only pages served from this machine may POST from a browser. The
+// adapter page runs at http://localhost:5173; reflecting only local origins
+// means a random web page cannot drive this endpoint cross-origin (its
+// application/json preflight fails, and simple-request fallbacks are
+// rejected by the Content-Type check below).
+const LOCAL_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+let localServer = null;
+let localPort = 0;                 // 0 = not listening
+
+function corsHeaders(req) {
+    const origin = req.headers.origin;
+    if (origin && LOCAL_ORIGIN_RE.test(origin)) {
+        return { 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin' };
+    }
+    return {};
+}
+
+/**
+ * Validate a local harmony body. Returns { patch } (only known-good fields)
+ * or { error } describing the first rejected field. Strict on unknown field
+ * names so vocabulary mistakes (e.g. sending scaleKey instead of scaleData)
+ * fail loudly instead of silently doing nothing.
+ */
+function validateLocalPatch(raw) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+        return { error: 'body must be a JSON object' };
+    }
+    const unknown = Object.keys(raw).filter(k => LOCAL_FIELDS.indexOf(k) === -1);
+    if (unknown.length > 0) {
+        return { error: `unknown field(s): ${unknown.join(', ')} (accepted: ${LOCAL_FIELDS.join(', ')})` };
+    }
+    const patch = {};
+    if ('bpm' in raw) {
+        const bpm = raw.bpm;
+        if (bpm === null) {
+            return { error: 'bpm has no clear semantics; omit the field instead of sending null' };
+        }
+        if (typeof bpm !== 'number' || !isFinite(bpm) || bpm < 20 || bpm > 400) {
+            return { error: 'bpm must be a finite number between 20 and 400' };
+        }
+        patch.bpm = bpm;
+    }
+    if ('scaleData' in raw) {
+        const s = raw.scaleData;
+        if (s === null) {
+            patch.scaleData = null;
+        } else if (typeof s !== 'string' || s.length === 0 || s.length > 64 || !parseScaleData(s)) {
+            return { error: `scaleData must be null or a valid scale token (e.g. "c_diatonic"), got ${JSON.stringify(s)}` };
+        } else {
+            patch.scaleData = s;
+        }
+    }
+    if ('chordData' in raw) {
+        const c = raw.chordData;
+        if (c === null) {
+            patch.chordData = null;
+        } else if (typeof c !== 'string' || c.length === 0 || c.length > 64) {
+            return { error: `chordData must be null or a chord token string (e.g. "c_7-17"), got ${JSON.stringify(c)}` };
+        } else {
+            patch.chordData = c;
+        }
+    }
+    if ('chordInfo' in raw && raw.chordInfo !== null) {
+        const info = raw.chordInfo;
+        if (typeof info !== 'object' || Array.isArray(info)) {
+            return { error: 'chordInfo must be null or an object {id, root, voicing}' };
+        }
+        const infoUnknown = Object.keys(info).filter(k => ['id', 'root', 'voicing'].indexOf(k) === -1);
+        if (infoUnknown.length > 0) {
+            return { error: `unknown chordInfo field(s): ${infoUnknown.join(', ')} (accepted: id, root, voicing)` };
+        }
+        if (typeof patch.chordData !== 'string') {
+            return { error: 'chordInfo requires a non-null chordData in the same patch' };
+        }
+        if (info.id !== patch.chordData) {
+            return { error: `chordInfo.id must equal chordData (got ${JSON.stringify(info.id)} vs ${JSON.stringify(patch.chordData)})` };
+        }
+        if (!Array.isArray(info.voicing) || info.voicing.length === 0 || info.voicing.length > 24 ||
+            !info.voicing.every(n => Number.isInteger(n) && n >= 0 && n <= 127)) {
+            return { error: 'chordInfo.voicing must be a non-empty array (max 24) of MIDI notes 0-127' };
+        }
+        if (info.root !== undefined && info.root !== null &&
+            (!Number.isInteger(info.root) || info.root < 0 || info.root > 11)) {
+            return { error: 'chordInfo.root must be an integer 0-11 (or omitted)' };
+        }
+        patch.chordInfo = {
+            id: info.id,
+            root: Number.isInteger(info.root) ? info.root : null,
+            voicing: info.voicing.slice()
+        };
+    }
+    if ('externalBassPc' in raw) {
+        const b = raw.externalBassPc;
+        if (b !== null && (!Number.isInteger(b) || b < 0 || b > 11)) {
+            return { error: 'externalBassPc must be null or an integer 0-11' };
+        }
+        if (b !== null) {
+            if (typeof patch.chordData !== 'string') {
+                return { error: 'externalBassPc requires a non-null chordData in the same patch (bass is chord-scoped)' };
+            }
+            patch.externalBassPc = b;   // slash bass: the Root palette plays this pc
+        }
+        // null = no bass, same as omitting the field (bass is chord-scoped)
+    }
+    return { patch };
+}
+
+// Firestore polling stops WITHOUT the full stopPolling() reset: harmony
+// state, held notes, and dedup survive so the local source takes over
+// seamlessly (held notes keep sounding, identical state is not re-applied).
+function pauseFirestoreForLocal() {
+    connectionGeneration++;   // in-flight poll results become stale and are discarded
+    config.enabled = false;
+    if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+    }
+    clearHoldTimers();        // pending Firestore downbeat holds must not land later
+    maxApi.post('Firestore polling paused — local source took over (send a room code or "connect" to resume)');
+}
+
+/**
+ * Firestore-style doc synthesized from a validated local chordInfo, so the
+ * local source reuses the exact chordInfoMatches/resolveChordNotes path
+ * (including the id === chordData stale protection) instead of growing a
+ * parallel resolution code path.
+ */
+function docFromLocalChordInfo(info) {
+    const fields = {
+        id: { stringValue: info.id },
+        voicing: { arrayValue: { values: info.voicing.map(n => ({ integerValue: String(n) })) } }
+    };
+    if (info.root !== null) fields.root = { integerValue: String(info.root) };
+    return { fields: { chordInfo: { mapValue: { fields } } } };
+}
+
+function applyLocalUpdate(patch) {
+    if (activeSource === 'firestore') pauseFirestoreForLocal();
+    if (activeSource !== 'local') {
+        activeSource = 'local';
+        setStatus('local');
+        maxApi.post(`Local harmony source active on http://127.0.0.1:${localPort}/harmony`);
+    }
+    const doc = patch.chordInfo ? docFromLocalChordInfo(patch.chordInfo) : {};
+    applyHarmonyState(patch, doc, 0);   // real-time: no downbeat hold
+}
+
+function handleLocalRequest(req, res) {
+    const cors = corsHeaders(req);
+    const respond = (status, obj) => {
+        res.writeHead(status, Object.assign({ 'Content-Type': 'application/json' }, cors));
+        res.end(JSON.stringify(obj));
+    };
+
+    if (req.method === 'OPTIONS') {
+        // Browser preflight for the application/json POST. Allowed methods /
+        // headers are only meaningful with a reflected local origin.
+        res.writeHead(204, Object.assign({
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Max-Age': '86400'
+        }, cors));
+        res.end();
+        return;
+    }
+    if (req.url !== '/harmony') {
+        respond(404, { ok: false, error: 'not found; POST /harmony' });
+        return;
+    }
+    if (req.method !== 'POST') {
+        respond(405, { ok: false, error: 'method not allowed; POST /harmony' });
+        return;
+    }
+    const ctype = String(req.headers['content-type'] || '').toLowerCase();
+    if (ctype.indexOf('application/json') !== 0) {
+        respond(415, { ok: false, error: 'Content-Type must be application/json' });
+        return;
+    }
+
+    let body = '';
+    let tooLarge = false;
+    req.on('data', (chunk) => {
+        if (tooLarge) return;
+        body += chunk;
+        if (body.length > LOCAL_BODY_LIMIT) {
+            tooLarge = true;
+            respond(413, { ok: false, error: `body exceeds ${LOCAL_BODY_LIMIT} bytes` });
+            req.destroy();
+        }
+    });
+    req.on('end', () => {
+        if (tooLarge) return;
+        let parsed;
+        try {
+            parsed = JSON.parse(body);
+        } catch (e) {
+            respond(400, { ok: false, error: 'invalid JSON' });
+            return;
+        }
+        const v = validateLocalPatch(parsed);
+        if (v.error) {
+            maxApi.post(`Local update rejected: ${v.error}`);
+            respond(400, { ok: false, error: v.error });
+            return;
+        }
+        applyLocalUpdate(v.patch);
+        respond(200, { ok: true, source: 'local' });
+    });
+    req.on('error', () => { /* sender went away mid-request; nothing to apply */ });
+}
+
+function startLocalServer(port) {
+    stopLocalServer();
+    if (!(port > 0)) {
+        maxApi.post('Local harmony source disabled (port 0)');
+        return;
+    }
+    const server = http.createServer(handleLocalRequest);
+    server.on('error', (err) => {
+        if (localServer === server) localServer = null;
+        localPort = 0;
+        if (err.code === 'EADDRINUSE') {
+            maxApi.post(`Local harmony port ${port} already in use (another Bridge instance is the local receiver). ` +
+                'This instance stays on Firestore/idle; send "localPort <n>" to listen elsewhere.');
+        } else {
+            maxApi.post(`Local harmony source error: ${err.message}`);
+        }
+    });
+    server.listen(port, '127.0.0.1', () => {
+        localPort = port;
+        maxApi.post(`Local harmony source listening on http://127.0.0.1:${port}/harmony`);
+    });
+    server.unref();   // never keeps the node process alive on its own
+    localServer = server;
+}
+
+function stopLocalServer() {
+    if (localServer) {
+        try { localServer.close(); } catch (e) { /* already closed */ }
+        localServer = null;
+        localPort = 0;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -933,9 +1315,20 @@ maxApi.addHandler('poll', () => {
     poll();
 });
 
+// Local harmony source port (loopback HTTP endpoint). 0 disables.
+maxApi.addHandler('localPort', (p) => {
+    const port = parseInt(p, 10);
+    if (isNaN(port) || port < 0 || port > 65535) {
+        maxApi.post(`Invalid localPort: ${p}`);
+        return;
+    }
+    startLocalServer(port);
+});
+
 // Report current config
 maxApi.addHandler('info', () => {
-    maxApi.post(`Config: room=${config.roomCode}, project=${config.projectId}, interval=${config.pollInterval}ms, enabled=${config.enabled}`);
+    maxApi.post(`Config: room=${config.roomCode}, project=${config.projectId}, interval=${config.pollInterval}ms, ` +
+        `enabled=${config.enabled}, source=${activeSource}, localPort=${localPort || 'off'}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -949,6 +1342,10 @@ maxApi.post('Firestore Bridge loaded');
 // - Ensemble Bridge: pattr-persisted textedit -> "room <code>"
 // Receiving a room code auto-connects (see 'room' handler above).
 setStatus('idle');
+
+// The local harmony source listens immediately (loopback only), so the
+// offline chain works with zero configuration: adapter POSTs → this device.
+startLocalServer(LOCAL_PORT_DEFAULT);
 
 // Tell the patch the script is running and handlers are registered, so it can
 // safely deliver the room code (loadbang messages can arrive before the
