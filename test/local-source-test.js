@@ -25,9 +25,25 @@ const handlers = {};
 const outlets = [];
 const posts = [];
 
+// Multi-instance broadcast wire: the leader's 'localpatch' outlet goes out
+// through send lalork-localpatch and comes back into EVERY instance's
+// receive → prepend localpatch → handler (the leader applies via its own
+// receive too). The mock simulates that wire: broadcasts are recorded
+// separately (they are transport, not harmony outlets) and looped back
+// into our own handler synchronously, like a Max message.
+const broadcasts = [];
+let loopback = true;   // false = act as a pure follower (no own receive)
+
 const mockMaxApi = {
     addHandler(name, fn) { handlers[name] = fn; },
-    outlet(...args) { outlets.push(args); },
+    outlet(...args) {
+        if (args[0] === 'localpatch') {
+            broadcasts.push(args[1]);
+            if (loopback) handlers.localpatch(args[1]);
+            return;
+        }
+        outlets.push(args);
+    },
     post(msg) { posts.push(String(msg)); }
 };
 
@@ -466,18 +482,65 @@ async function main() {
         const r = await postJson({ bpm: 103 });
         ok('endpoint restart on the same port recovers', () => assert.strictEqual(r.status, 200));
     }
+    console.log('multi-instance (leader election + broadcast):');
     {
-        // EADDRINUSE: another listener owns the port → clear log, no crash
+        clearOut();
+        broadcasts.length = 0;
+        await postJson({ bpm: 105 });
+        ok('POST emits one localpatch broadcast that decodes to the validated patch', () => {
+            assert.strictEqual(broadcasts.length, 1);
+            assert.deepStrictEqual(
+                JSON.parse(Buffer.from(broadcasts[0], 'base64').toString('utf8')),
+                { bpm: 105 });
+            // ...and the leader applied it via its own receive (the loopback)
+            assert.deepStrictEqual(outletsOf('bpm'), [[105]]);
+        });
+    }
+    {
+        // Pure follower: port disabled, patches arrive only via the receive
+        handlers.disconnect();        // reset to idle so the announcement re-fires
+        handlers.localPort(0);
+        await sleep(30);
+        clearOut();
+        loopback = false;
+        handlers.localpatch(Buffer.from(JSON.stringify({ bpm: 106, scaleData: 'd_diatonic' })).toString('base64'));
+        ok('follower applies a broadcast patch without owning the port', () => {
+            assert.deepStrictEqual(outletsOf('bpm'), [[106]]);
+            assert.deepStrictEqual(outletsOf('rootName'), [['D']]);
+            assert(posts.some(p => p.includes('following the leader')), JSON.stringify(posts));
+        });
+        clearOut();
+        handlers.localpatch('%%%%');                                       // undecodable
+        handlers.localpatch(Buffer.from('{"bpm":9999}').toString('base64')); // fails re-validation
+        ok('malformed / invalid broadcasts are rejected without applying', () => {
+            assert(posts.some(p => p.includes('undecodable')), JSON.stringify(posts));
+            assert(posts.some(p => p.includes('localpatch rejected')), JSON.stringify(posts));
+            assert.strictEqual(outletsOf('bpm').length, 0);
+        });
+        loopback = true;
+    }
+    {
+        // Leader election: another listener owns the port → follower
+        // announcement, quiet retries, automatic takeover when it goes away.
         const blocker = net.createServer();
         await new Promise(res => blocker.listen(PORT + 1, '127.0.0.1', res));
         posts.length = 0;
         handlers.localPort(PORT + 1);
         await sleep(80);
-        ok('occupied port reported clearly (single-listener limitation)', () => {
-            assert(posts.some(p => p.includes(`port ${PORT + 1} already in use`)), JSON.stringify(posts));
+        ok('occupied port → single follower announcement', () => {
+            assert(posts.some(p => p.includes(`port ${PORT + 1} held by another Bridge instance`)), JSON.stringify(posts));
         });
-        blocker.close();
-        handlers.localPort(PORT);
+        await sleep(2100);   // one retry fires while the leader still holds the port
+        ok('bind retries are quiet (no repeated announcements)', () => {
+            assert.strictEqual(posts.filter(p => p.includes('held by another Bridge instance')).length, 1,
+                JSON.stringify(posts));
+        });
+        await new Promise(res => blocker.close(res));
+        await sleep(2300);   // next retry finds the port free
+        ok('follower takes over when the leader goes away', () => {
+            assert(posts.some(p => p.includes(`took over http://127.0.0.1:${PORT + 1}/harmony`)), JSON.stringify(posts));
+        });
+        handlers.localPort(PORT);   // explicit restart cancels retries, rebinds
         await sleep(50);
         const r = await postJson({ bpm: 104 });
         assert.strictEqual(r.status, 200);

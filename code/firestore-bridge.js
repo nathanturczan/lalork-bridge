@@ -943,12 +943,20 @@ function stopPolling() {
 // results are invalidated via connectionGeneration); an explicit room /
 // connect message switches back to Firestore. Last explicit action wins.
 //
-// One listener per port: if another Bridge instance already holds the port,
-// this instance logs it and stays on Firestore/idle (Phase 1 limitation —
-// send "localPort <n>" to make a second instance listen elsewhere).
+// Many instances, one listener: every instance tries to bind the port at
+// script load; the winner ("leader") accepts POSTs, validates, and
+// re-broadcasts each valid patch to ALL instances — itself included — as
+// base64 JSON via outlet 'localpatch' → send lalork-localpatch → every
+// instance's receive → prepend localpatch → its own 'localpatch' handler
+// (same idiom as lalork-room: the sender applies via its own receive, so
+// there is one application code path and consistent ordering everywhere).
+// Losers follow the broadcast and quietly retry the bind every 2s, so if
+// the leader device is deleted another instance takes over; the adapter's
+// sink recovers on its next write.
 // ---------------------------------------------------------------------------
 
 const LOCAL_PORT_DEFAULT = 8767;   // 8765 = PDF2PDF WS, 8766 = ump-listen WS
+const LOCAL_RETRY_MS = 2000;       // follower bind-retry interval (leader takeover)
 const LOCAL_BODY_LIMIT = 4096;     // harmony patches are tiny
 const LOCAL_FIELDS = ['bpm', 'scaleData', 'chordData', 'chordInfo', 'externalBassPc'];
 
@@ -961,6 +969,8 @@ const LOCAL_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 let localServer = null;
 let localPort = 0;                 // 0 = not listening
+let localRetryTimer = null;        // follower's pending bind retry
+let localFollowerAnnounced = false; // one follower announcement per episode
 
 function corsHeaders(req) {
     const origin = req.headers.origin;
@@ -1094,7 +1104,9 @@ function applyLocalUpdate(patch) {
     if (activeSource !== 'local') {
         activeSource = 'local';
         setStatus('local');
-        maxApi.post(`Local harmony source active on http://127.0.0.1:${localPort}/harmony`);
+        maxApi.post(localPort > 0
+            ? `Local harmony source active on http://127.0.0.1:${localPort}/harmony`
+            : 'Local harmony source active (following the leader Bridge instance)');
     }
     const doc = patch.chordInfo ? docFromLocalChordInfo(patch.chordInfo) : {};
     applyHarmonyState(patch, doc, 0);   // real-time: no downbeat hold
@@ -1158,14 +1170,19 @@ function handleLocalRequest(req, res) {
             respond(400, { ok: false, error: v.error });
             return;
         }
-        applyLocalUpdate(v.patch);
+        // Don't apply here: broadcast through the patch so EVERY Bridge
+        // instance (this one included, via its own receive) applies it in
+        // the 'localpatch' handler. Base64 so JSON quotes/commas survive
+        // the Max symbol path.
+        maxApi.outlet('localpatch', Buffer.from(JSON.stringify(v.patch)).toString('base64'));
         respond(200, { ok: true, source: 'local' });
     });
     req.on('error', () => { /* sender went away mid-request; nothing to apply */ });
 }
 
-function startLocalServer(port) {
+function startLocalServer(port, isRetry) {
     stopLocalServer();
+    if (!isRetry) localFollowerAnnounced = false;   // fresh episode on explicit (re)start
     if (!(port > 0)) {
         maxApi.post('Local harmony source disabled (port 0)');
         return;
@@ -1175,21 +1192,41 @@ function startLocalServer(port) {
         if (localServer === server) localServer = null;
         localPort = 0;
         if (err.code === 'EADDRINUSE') {
-            maxApi.post(`Local harmony port ${port} already in use (another Bridge instance is the local receiver). ` +
-                'This instance stays on Firestore/idle; send "localPort <n>" to listen elsewhere.');
+            // Another instance is the leader. Follow its lalork-localpatch
+            // broadcasts and quietly retry the bind so this instance can
+            // take over if the leader device goes away.
+            if (!localFollowerAnnounced) {
+                localFollowerAnnounced = true;
+                maxApi.post(`Local harmony port ${port} held by another Bridge instance — ` +
+                    'following its broadcasts; will take over if it goes away.');
+            }
+            localRetryTimer = setTimeout(() => {
+                localRetryTimer = null;
+                startLocalServer(port, true);
+            }, LOCAL_RETRY_MS);
+            if (localRetryTimer.unref) localRetryTimer.unref();
         } else {
             maxApi.post(`Local harmony source error: ${err.message}`);
         }
     });
     server.listen(port, '127.0.0.1', () => {
         localPort = port;
-        maxApi.post(`Local harmony source listening on http://127.0.0.1:${port}/harmony`);
+        if (localFollowerAnnounced) {
+            localFollowerAnnounced = false;
+            maxApi.post(`Local harmony leader gone — this instance took over http://127.0.0.1:${port}/harmony`);
+        } else {
+            maxApi.post(`Local harmony source listening on http://127.0.0.1:${port}/harmony`);
+        }
     });
     server.unref();   // never keeps the node process alive on its own
     localServer = server;
 }
 
 function stopLocalServer() {
+    if (localRetryTimer) {
+        clearTimeout(localRetryTimer);
+        localRetryTimer = null;
+    }
     if (localServer) {
         try { localServer.close(); } catch (e) { /* already closed */ }
         localServer = null;
@@ -1315,6 +1352,27 @@ maxApi.addHandler('poll', () => {
     poll();
 });
 
+// Local harmony broadcast (leader's outlet → send lalork-localpatch →
+// every instance's receive → prepend localpatch → here). ALL instances,
+// the leader included, apply local updates through this handler, so they
+// stay in lockstep via one code path. Payload: base64-encoded JSON patch.
+// Re-validated on receipt — the wire is Max messages, not trusted state.
+maxApi.addHandler('localpatch', (b64) => {
+    let parsed;
+    try {
+        parsed = JSON.parse(Buffer.from(String(b64), 'base64').toString('utf8'));
+    } catch (e) {
+        maxApi.post(`localpatch: undecodable payload (${e.message})`);
+        return;
+    }
+    const v = validateLocalPatch(parsed);
+    if (v.error) {
+        maxApi.post(`localpatch rejected: ${v.error}`);
+        return;
+    }
+    applyLocalUpdate(v.patch);
+});
+
 // Local harmony source port (loopback HTTP endpoint). 0 disables.
 maxApi.addHandler('localPort', (p) => {
     const port = parseInt(p, 10);
@@ -1345,6 +1403,8 @@ setStatus('idle');
 
 // The local harmony source listens immediately (loopback only), so the
 // offline chain works with zero configuration: adapter POSTs → this device.
+// With multiple instances this doubles as leader election: the first to
+// bind wins; the rest follow the broadcast and retry (see startLocalServer).
 startLocalServer(LOCAL_PORT_DEFAULT);
 
 // Tell the patch the script is running and handlers are registered, so it can
