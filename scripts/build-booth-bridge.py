@@ -195,19 +195,13 @@ patcher["boxes"] = new_boxes
 patcher["lines"] = new_lines
 out_json = json.dumps({"patcher": patcher}, indent=4).encode("utf-8")
 
-# Rebuild the wrapper with sizes fixed up (JSON + NUL, snapshot dropped).
-new_payload_body = out_json + b"\x00"
-new_chunk_size = 16 + len(new_payload_body)
-# mx@c header: magic, BE 16, BE 0, BE size field offset by the same constant
-# the shipping device uses (field = chunk_size - 340 there).
-delta = chunk_size - struct.unpack(">I", sub[12:16])[0]
-new_field = max(0, new_chunk_size - delta)
-new_sub = sub[:8] + struct.pack(">I", 0) + struct.pack(">I", new_field)
+# Plain-text .amxd wrapper (the format of the repo's legacy devices, which
+# Live loads directly): ampf + mmmm + ptch chunk holding raw patcher JSON.
+# The shipping device's mx@c-framed binary variant is a Max re-save artifact
+# and is NOT reproducible by hand - Live rejects near-misses as "broken".
 out = (
-    header[: i + 4]
-    + struct.pack("<I", new_chunk_size)
-    + b"mx@c" + struct.pack(">I", 16) + new_sub[8:]
-    + new_payload_body
+    b"ampf" + struct.pack("<I", 4) + b"mmmm"
+    + b"ptch" + struct.pack("<I", len(out_json)) + out_json
 )
 open(OUT, "wb").write(out)
 print(f"wrote {OUT}: {len(new_boxes)} boxes, {len(new_lines)} lines, "
