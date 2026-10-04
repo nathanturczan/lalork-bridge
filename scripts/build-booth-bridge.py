@@ -98,6 +98,12 @@ for lid, txt, rect in [
         "presentation": 1, "presentation_rect": rect, "text": txt,
     })
 
+# Booth NoteSource: Chord and Root only (Scale hands players the full scale
+# palette, which defeats the no-wrong-notes promise at a walk-up table).
+_menu = BX["obj-mode-menu"]["saved_attribute_attributes"]["valueof"]
+_menu["parameter_enum"] = ["Chord", "Root"]
+_menu["parameter_mmax"] = 1
+
 face("obj-chord-display", 5, 52, 410, 54, fontsize=32.0, fontface=1)
 face("obj-scale-display", 5, 130, 235, 22, fontsize=13.0)
 face("obj-bpm-display", 250, 130, 60, 22, fontsize=13.0)
